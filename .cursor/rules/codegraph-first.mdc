@@ -1,0 +1,37 @@
+---
+description: 查看、理解或检索代码时优先使用 codegraph 知识图谱,Read/Grep/Glob 仅作兜底。Use when exploring, understanding, tracing, or searching code.
+alwaysApply: true
+---
+
+# Codegraph 优先
+
+查看和理解代码时,**默认优先使用 codegraph**(user-codegraph MCP),它是预建的代码知识图谱,毫秒级返回符号、调用关系与影响面。Cursor 原生的 Read / Grep / Glob 仅在 codegraph 不擅长的场景作为兜底。
+
+## 优先用 codegraph 的场景
+
+按意图选择工具:
+
+- **某符号是什么、定义在哪** → `codegraph_search`
+- **某功能/模块整体怎么运作**(主入口) → `codegraph_context`(一次组合 搜索 + 定义 + 调用方 + 被调方)
+- **从 A 怎么走到 B 的调用链** → `codegraph_trace`(一次返回整条路径,含回调/动态分发等 grep 追不到的跳转)
+- **谁调用了它** → `codegraph_callers`
+- **它调用了什么** → `codegraph_callees`
+- **改它会影响什么(影响面)** → `codegraph_impact`
+- **看某个符号的源码/签名/docstring** → `codegraph_node`
+- **一次浏览多个相关符号的源码** → `codegraph_explore`(一次返回,优先于多次 node/Read)
+- **某目录里有什么** → `codegraph_files`
+
+## 仍用 Cursor 原生工具的场景(兜底)
+
+- **精确文本匹配**(某个字符串、配置值、报错信息) → Grep
+- **按文件名找文件** → Glob
+- **通读某个已知文件的完整内容** → Read
+- **刚改完代码立刻查**:codegraph 索引比文件写入滞后约 1 秒,此时用 Cursor 原生工具读最新内容
+
+## 工作流
+
+1. 先用 codegraph 定位与理解结构(通常 2-3 次调用)。
+2. 再用 Read/Grep 确认具体某几行的实现细节或精确文本。
+3. 不要在编辑文件后立即查 codegraph,等约 1 秒索引同步。
+
+codegraph 负责“在哪、谁调谁、影响面”;Read/Grep 负责“具体长啥样、精确文本、最新改动”。两者配合最高效。
