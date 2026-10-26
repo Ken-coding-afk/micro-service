@@ -1,25 +1,23 @@
 # Java与Python协作设计
 
-> 文档版本：1.0；文档集基线：D-20261026-02；更新：2026-10-26。  
+> 文档版本：1.1；文档集基线：D-20261026-03；更新：2026-10-26。  
 > 状态：目标设计，待整体评审；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：公共包、同步调用、消息与算法任务；服务寻址引用配置设计，聊天运行细节引用 Agent 设计。  
-> 导航：[文档总入口](../README.md)；任务与证据见[实施计划](../plans/2026-10-26-微服务框架实施计划.md)。
+> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/01-微服务框架实施计划.md)。
 
 文中的路径、接口、配置和命令均为拟交付合同；当前仓库只有文档，不能直接执行这些命令启动系统。
 
 | 章节 | 阅读目的 |
 | --- | --- |
-| [1. 服务职责和公共包范围](#section-1) | 服务职责和公共包范围 |
-| [2. Gateway 与各服务的安全边界](#section-2) | Gateway 与各服务的安全边界 |
-| [3. 跨语言 HTTP 合同](#section-3) | 跨语言 HTTP 合同 |
-| [4. 调用发现、超时与故障处理](#section-4) | 调用发现、超时与故障处理 |
-| [5. 消息、Outbox 与 Inbox](#section-5) | 消息、Outbox 与 Inbox |
-| [6. 长时间算法任务](#section-6) | 长时间算法任务 |
-| [7. 文档分析项目的完整链路](#section-7) | 文档分析项目的完整链路 |
+| [1. 服务职责和公共包范围](#sdk) | 服务职责和公共包范围 |
+| [2. Gateway 与各服务的安全边界](#gateway) | Gateway 与各服务的安全边界 |
+| [3. 跨语言 HTTP 合同](#http) | 跨语言 HTTP 合同 |
+| [4. 调用发现、超时与故障处理](#calls) | 调用发现、超时与故障处理 |
+| [5. 消息、Outbox 与 Inbox](#messaging) | 消息、Outbox 与 Inbox |
+| [6. 长时间算法任务](#analysis-jobs) | 长时间算法任务 |
+| [7. 文档分析项目的完整链路](#document-flow) | 文档分析项目的完整链路 |
 
-<a id="section-1"></a>
-<a id="d09"></a>
-<a id="d09-1"></a>
+<a id="sdk"></a>
 
 ## 1. 服务职责和公共包范围
 
@@ -35,14 +33,13 @@
 | MQ | envelope、Outbox 投递、Inbox 去重 | 同协议发布/消费与可选 DB 适配 | 声明事件类型、处理事务和幂等策略 |
 | 错误与日志 | 异常映射、JSON 日志、request/trace 字段 | 异常处理器、结构化日志 | 抛明确业务异常，避免泄密 |
 | 健康检查 | liveness/readiness 与依赖指标 | 相同语义的健康端点 | 声明服务真正需要的依赖 |
-| 聊天运行支持 | 使用标准 HTTP/SSE 与 Python 协作；不重复实现 Agent 执行引擎 | 可选 RunStore/RunCoordinator、EventLog、CheckpointStore、ToolLedger 与 LangGraph 适配 | 提供会话模型、Graph/工具、上下文构造与恢复策略；详见 [聊天Agent多节点设计·部署角色与数据归属](聊天Agent多节点设计.md#d11) |
+| 聊天运行支持 | 使用标准 HTTP/SSE 与 Python 协作；不重复实现 Agent 执行引擎 | 可选 RunStore/RunCoordinator、EventLog、CheckpointStore、ToolLedger 与 LangGraph 适配 | 提供会话模型、Graph/工具、上下文构造与恢复策略；详见 [聊天Agent多节点设计·部署角色与数据归属](08-聊天Agent多节点设计.md#architecture) |
 
 不统一包装 MyBatis、SQLAlchemy、Redis、所有模型 SDK 的全部 API。公共包提供接入钩子与少量规范能力，项目仍直接使用成熟库处理自身业务。只出现一次的辅助函数留在项目；确有多个项目复用且合同稳定后再进入框架。
 
 Java 注解只做方法前置检查，不能自动知道业务数据“属于谁”；必须通过查询条件或领域校验落实数据权限。Python 的 dependency 同理。任何 `skip_auth`、`ignore_tenant` 都不能作为业务代码的常规便利开关；平台特例限定到具体入口并配反向测试。
 
-<a id="section-2"></a>
-<a id="d09-2"></a>
+<a id="gateway"></a>
 
 ## 2. Gateway 与各服务的安全边界
 
@@ -52,8 +49,7 @@ Gateway 对 API 校验 access token 或 BFF 会话；资源服务再次独立校
 
 BFF 登录流程由 Gateway OAuth2 Client 完成，保存授权客户端和刷新凭证到服务端存储；浏览器后续通过会话访问业务。Cookie 模式的写请求强制 CSRF 校验，OAuth state 和 PKCE 不能替代业务 CSRF。外部 API 客户端可直接发送 Bearer token；BFF cookie 与 bearer 的入口处理明确分离，避免不清楚当前使用哪种身份。
 
-<a id="section-3"></a>
-<a id="d09-3"></a>
+<a id="http"></a>
 
 ## 3. 跨语言 HTTP 合同
 
@@ -78,19 +74,17 @@ BFF 登录流程由 Gateway OAuth2 Client 完成，保存授权客户端和刷�
 
 OpenAPI 由服务的 DTO/路由生成并随服务发行；Java/Python 客户端可由 OpenAPI Generator 生成，生成代码放 `client/generated`，业务适配放其外层。前后端和两个语言不靠手工各写一份 DTO 保持“差不多一致”。
 
-<a id="section-4"></a>
+<a id="calls"></a>
 
 ## 4. 调用发现、超时与故障处理
 
-服务发现的唯一合同见[配置与服务发现设计](配置与服务发现设计.md#d09-4)。SDK 对外以逻辑服务名调用，项目代码不拼接 Nacos 地址或缓存实例列表。调用链传递经过验证的租户、主体、trace 和截止时间；不把客户端传入的身份头作为可信身份。
+服务发现的唯一合同见[配置与服务发现设计](02-配置与服务发现设计.md#service-discovery)。SDK 对外以逻辑服务名调用，项目代码不拼接 Nacos 地址或缓存实例列表。调用链传递经过验证的租户、主体、trace 和截止时间；不把客户端传入的身份头作为可信身份。
 
 同步调用适用于可在请求预算内完成的读取或短操作。调用前必须有连接、读取和整体超时，整体预算向下游递减。幂等读取可在剩余预算内有限重试并换实例；写请求只有协议明确支持幂等键时才可重试。超时表示未得到结果，不表示下游未执行。外部模型/工具单独配置超时，不直接套用普通 API 的较短预算。
 
 Java 可调用 Python，Python 也可调用 Java；选择哪一方发起由领域职责决定。Python 的算法接口可以独立作为项目业务服务，不强制为每个 Python 服务再增加一个 Java 转发服务。后台任务调用业务 API 时必须使用登记的机器身份或明确的用户委托，不能沿用过期浏览器 token。
 
-<a id="section-5"></a>
-<a id="d10"></a>
-<a id="d10-1"></a>
+<a id="messaging"></a>
 
 ## 5. 消息、Outbox 与 Inbox
 
@@ -118,10 +112,11 @@ Inbox 去重索引默认长期保留，只存去重与处理结果所需字段�
 
 RabbitMQ 的 publisher confirm 和 consumer ack 是两个独立确认，只分别证明对应阶段的处理，不提供数据库与消息的原子提交。[RabbitMQ 确认机制](https://www.rabbitmq.com/docs/confirms)
 
-<a id="section-6"></a>
-<a id="d10-2"></a>
+<a id="analysis-jobs"></a>
 
 ## 6. 长时间算法任务
+
+**与聊天 Run 的区别：** 算法排队超时进入 RECOVERY_REQUIRED，保留该分析任务供授权人员判断恢复；聊天排队超时进入 FAILED/QUEUE_TIMEOUT 并推进会话后续轮次。相同状态名不代表同一实体或处理器；算法调用任务所有者的内部 API，聊天由同服务 SDK 访问数据库。聊天参数独立定义于[聊天恢复与容量](08-聊天Agent多节点设计.md#recovery)，不得共用无前缀的 task_timeout。
 
 “文档分析”示例由 Java `document-service` 拥有任务状态。全 Python 项目可由 Python 业务服务承担相同角色，不要求另加 Java 业务服务。identity-service 不存放所有项目任务。
 
@@ -144,21 +139,21 @@ RabbitMQ 的 publisher confirm 和 consumer ack 是两个独立确认，只分�
 
 | 接口 | 输入 | 原子检查与结果 |
 | --- | --- | --- |
-| `POST /internal/v1/analysis-jobs/{id}/claim` | event_id、tenant_id、worker_id | QUEUED → RUNNING；一次生成 attempt_id；已终态返回终态；已被领取返回冲突，不能再次执行 |
-| `POST .../{id}/heartbeat` | attempt_id | 核对当前 worker 与 attempt；续租并返回 cancel_requested；失效 attempt 返回 409 |
-| `POST .../{id}/complete` | attempt_id、status、result_ref 或 error_code | 只接受当前有效 attempt；同 attempt 同内容可重放；冲突结果 409；终态不可覆盖 |
+| `POST /internal/v1/analysis-jobs/{id}/claim` | event_id、tenant_id、worker_id | QUEUED → RUNNING；一次生成 attempt_id；已终态返回终态；已被领取返回 409 JOB_ALREADY_CLAIMED，不能再次执行；同 worker 的重试仅可取回仍有效的原 attempt，不新建执行权 |
+| `POST .../{id}/heartbeat` | attempt_id | 核对当前 worker 与 attempt；续租并返回 cancel_requested；失效 attempt 返回 409 JOB_LEASE_LOST |
+| `POST .../{id}/complete` | attempt_id、status、result_ref 或 error_code | 只接受当前有效 attempt；同 attempt 同内容可重放；冲突结果 409 JOB_RESULT_CONFLICT；终态不可覆盖 |
 | `POST /api/v1/analysis-jobs/{id}/cancel` | 无额外权限声明 | 校验用户有该任务取消权限及数据范围；QUEUED 直接取消，RUNNING 只置取消请求 |
 | `POST /api/v1/analysis-jobs/{id}/retry` | reason，非空 | 仅 `document:recover` + TENANT；FAILED/RECOVERY_REQUIRED → QUEUED；清除旧租约、写新派发 Outbox；其他状态拒绝 |
 | `GET /api/v1/analysis-jobs/{id}` | job_id | 根据当前用户的数据范围读取状态；不返回内部凭证 |
 
-租约默认 120 秒、心跳 30 秒；任务默认最长 30 分钟，算法需要更长时间时必须由类型配置显式声明。RabbitMQ consumer timeout 必须大于任务最大执行时间及收尾窗口；prefetch 默认 1，按 CPU/GPU 配额扩容 Worker，不能无限并发。
+算法任务独立配置名为 analysis_jobs.lease_seconds=120、heartbeat_seconds=30、execution_timeout_seconds=1800、queue_timeout_seconds=3600；本节是这些值的唯一来源。类型覆盖由任务所有者声明并在提交时冻结；心跳必须小于租约，改变配置不追溯改变已提交任务的 deadline。RabbitMQ consumer timeout 必须大于任务最大执行时间及收尾窗口；prefetch 默认 1，按 CPU/GPU 配额扩容 Worker，不能无限并发。
 
 | 现态 | 触发 | 后态 / 处理 |
 | --- | --- | --- |
 | QUEUED | 领取并提交事务 | RUNNING |
 | QUEUED | 用户取消 | CANCELLED，后续重复投递直接确认 |
 | QUEUED | 合法 Worker 领取时确认提交者/租户已失效 | CANCELLED，记录 AUTH_REVOKED；不继续循环重投 |
-| QUEUED | 超过配置的排队上限，默认 60 分钟 | RECOVERY_REQUIRED；由扫描器标记并告警，不能永久显示“排队中” |
+| QUEUED | 超过配置的排队上限，按 queue_timeout_seconds | RECOVERY_REQUIRED，原因 QUEUE_TIMEOUT；由扫描器标记并告警，不能永久显示“排队中” |
 | RUNNING | 当前 attempt 成功完成 | SUCCEEDED |
 | RUNNING | 明确的业务失败 | FAILED，记录可理解的错误码 |
 | RUNNING | 取消请求且 Worker 确认已停止 | CANCELLED |
@@ -171,9 +166,9 @@ RabbitMQ 的 publisher confirm 和 consumer ack 是两个独立确认，只分�
 
 领取时如果是 identity-service/数据库暂时不可用，保留 QUEUED，按有限投递规则处理；不能把依赖故障误判成权限撤销。扫描器每分钟检查过期租约和排队期限，使用状态/version 条件更新，和 claim 竞态只允许一方成功。
 
-AI Agent 工具调用也经过服务权限控制，模型输出不能指定任意 tenant_id、user_id 或调用任意内网地址。任务保存模型/提示词/工具版本、用量和输出引用；默认日志不记录完整敏感提示词。每类任务声明超时、最大步骤、token/费用预算与允许工具。python-sdk 基础包不强制依赖 Agent 库；聊天示例采用可选 LangGraph 适配。文档批任务遵循本节，聊天 Run 的排队、人工等待、恢复与 SSE 行为以 [聊天Agent多节点设计·部署角色与数据归属](聊天Agent多节点设计.md#d11) 为准，不把两套状态机机械混用。
+AI Agent 工具调用也经过服务权限控制，模型输出不能指定任意 tenant_id、user_id 或调用任意内网地址。任务保存模型/提示词/工具版本、用量和输出引用；默认日志不记录完整敏感提示词。每类任务声明超时、最大步骤、token/费用预算与允许工具。python-sdk 基础包不强制依赖 Agent 库；聊天示例采用可选 LangGraph 适配。文档批任务遵循本节，聊天 Run 的排队、人工等待、恢复与 SSE 行为以 [聊天Agent多节点设计·部署角色与数据归属](08-聊天Agent多节点设计.md#architecture) 为准，不把两套状态机机械混用。
 
-<a id="section-7"></a>
+<a id="document-flow"></a>
 
 ## 7. 文档分析项目的完整链路
 
@@ -189,8 +184,7 @@ AI Agent 工具调用也经过服务权限控制，模型输出不能指定任�
 
 业务项目必须实现的内容是文档实体、文件规则、算法与结果解释、领域权限和页面。基础身份/权限管理页、鉴权、隔离、日志、发现与消息通用能力直接复用。演示必须同时包含成功、重复消息、Worker 失联和跨租户拒绝，不能只演示一次 happy path。
 
-
-参考资料：以下为前期调研保留的原始项目/官方资料入口；本轮没有重新核验其在线版本。框架具体默认策略由本文定义，不能认为引用组件就自动实现了全部业务合同；实施兼容冻结任务须复核版本与能力。
+参考资料：以下为组件参考资料；本次只重新核验了认证文档新增引用的 Spring 客户端模型与 NIST 密码建议，其余在线版本未重新核验。框架具体默认策略由本文定义，不能认为引用组件就自动实现了全部业务合同；实施兼容冻结任务须复核版本与能力。
 
 | 来源 | 参考用途 |
 | --- | --- |

@@ -1,27 +1,25 @@
 # 聊天Agent多节点设计
 
-> 文档版本：1.0；文档集基线：D-20261026-02；更新：2026-10-26。  
+> 文档版本：1.1；文档集基线：D-20261026-03；更新：2026-10-26。  
 > 状态：目标设计，待整体评审；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：聊天 API/Worker 的分布式运行、状态合同、恢复及框架与业务分工。  
-> 导航：[文档总入口](../README.md)；任务与证据见[实施计划](../plans/2026-10-26-微服务框架实施计划.md)。
+> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/01-微服务框架实施计划.md)。
 
 文中的路径、接口、配置和命令均为拟交付合同；当前仓库只有文档，不能直接执行这些命令启动系统。
 
 | 章节 | 阅读目的 |
 | --- | --- |
-| [1. 部署角色与数据归属](#section-1) | 部署角色与数据归属 |
-| [2. 框架提供什么、业务实现什么](#section-2) | 框架提供什么、业务实现什么 |
-| [3. Run、会话、消息与接口](#section-3) | Run、会话、消息与接口 |
-| [4. 排队、并发、租约和旧 Worker 隔离](#section-4) | 排队、并发、租约和旧 Worker 隔离 |
-| [5. 流式事件、重连与跨 API 回放](#section-5) | 流式事件、重连与跨 API 回放 |
-| [6. 检查点、工具、审批与取消](#section-6) | 检查点、工具、审批与取消 |
-| [7. 容量、版本兼容与可观测性](#section-7) | 容量、版本兼容与可观测性 |
-| [8. 新项目接入和节点配置](#section-8) | 新项目接入和节点配置 |
-| [9. 关键故障的验证场景](#section-9) | 关键故障的验证场景 |
+| [1. 部署角色与数据归属](#architecture) | 部署角色与数据归属 |
+| [2. 框架提供什么、业务实现什么](#responsibilities) | 框架提供什么、业务实现什么 |
+| [3. Run、会话、消息与接口](#model) | Run、会话、消息与接口 |
+| [4. 排队、并发、租约和旧 Worker 隔离](#scheduling) | 排队、并发、租约和旧 Worker 隔离 |
+| [5. 流式事件、重连与跨 API 回放](#streaming) | 流式事件、重连与跨 API 回放 |
+| [6. 检查点、工具、审批与取消](#recovery) | 检查点、工具、审批与取消 |
+| [7. 容量、版本兼容与可观测性](#capacity) | 容量、版本兼容与可观测性 |
+| [8. 新项目接入和节点配置](#integration) | 新项目接入和节点配置 |
+| [9. 关键故障的验证场景](#fault-tests) | 关键故障的验证场景 |
 
-<a id="section-1"></a>
-<a id="d11"></a>
-<a id="d11-1"></a>
+<a id="architecture"></a>
 
 ## 1. 部署角色与数据归属
 
@@ -54,8 +52,7 @@ API 在 Nacos 注册同一个 `agent-service` 名称，实例地址不同；Gate
 
 多节点接入不依赖会话粘滞。API A 可以提交消息、Worker B 执行、API C 接收流式重连；已经建立的 SSE/TCP 连接本身不会迁移。多副本是应用容错基础，不自动使共享数据库、消息服务或模型提供方高可用。
 
-<a id="section-2"></a>
-<a id="d11-2"></a>
+<a id="responsibilities"></a>
 
 ## 2. 框架提供什么、业务实现什么
 
@@ -75,8 +72,7 @@ API 在 Nacos 注册同一个 `agent-service` 名称，实例地址不同；Gate
 
 本设计只做必要运行支持，不自建可视化 Agent 编排平台，不替换成熟图执行引擎。LangGraph 的检查点/长期记忆可以复用；其开源库与 Agent Server 的并发输入管理能力有边界，不能把托管平台功能算作已经集成的库能力。[持久化文档](https://docs.langchain.com/oss/python/langgraph/persistence)、[并发输入文档](https://docs.langchain.com/langsmith/double-texting)
 
-<a id="section-3"></a>
-<a id="d11-3"></a>
+<a id="model"></a>
 
 ## 3. Run、会话、消息与接口
 
@@ -119,8 +115,7 @@ SDK 的 `RunCoordinator.submit` 与项目写入用户消息共用一个数据库
 
 执行权限取提交时上限与用户当前权限交集。10 分钟 access token 自然过期不自动取消仍在授权有效期内的后台 Run，但撤销对应授权、退出撤销、禁用或权限收回会阻止后续操作；没有用户委托的机器 token 不能读取任意聊天历史。涉及外部请求的权限检查在数据库事务外完成，进入写事务时重查相同 Run/version 与绑定对象，不能拿另一 Run 的检查结果复用。
 
-<a id="section-4"></a>
-<a id="d11-4"></a>
+<a id="scheduling"></a>
 
 ## 4. 排队、并发、租约和旧 Worker 隔离
 
@@ -134,8 +129,7 @@ MQ 只通知有就绪工作，不作为顺序事实来源。非队首/已领取�
 
 WAITING_APPROVAL 和 RECOVERY_REQUIRED 仍占该会话的活跃槽，阻止后续消息越过未决上下文，但释放计算容量。默认采用“排队 + 显式取消”，不自动打断、不自动回滚整个对话。人工放弃未决 Run 后才能继续下一轮。
 
-<a id="section-5"></a>
-<a id="d11-5"></a>
+<a id="streaming"></a>
 
 ## 5. 流式事件、重连与跨 API 回放
 
@@ -155,10 +149,13 @@ Gateway 只对 `/api/v1/chat/runs/*/events` 采用流式路由：禁用响应聚
 
 默认聊天前端通过同源 BFF cookie 及成熟 fetch/SSE 解析器接入；不能假设浏览器原生 EventSource 可以设置任意 Authorization header。连接建立前检查权限，建立后每 30 秒重新检查，事件读取前遇到已知撤权立即停止；依赖故障或撤权时发送不含敏感数据的流错误并关闭。流已经开始后不能伪称再返回 HTTP 401/503；建立前才使用这些状态码。最长 30 秒是已建立订阅的撤权检查窗口，不等于普通 API 的实时内省边界。
 
-<a id="section-6"></a>
-<a id="d11-6"></a>
+<a id="recovery"></a>
 
 ## 6. 检查点、工具、审批与取消
+
+**与算法任务的区别：** 本节只定义聊天 Run；排队超时为 FAILED/QUEUE_TIMEOUT，终态按调度合同释放槽位/推进下一轮。[算法任务](07-Java与Python协作设计.md#analysis-jobs)排队超时保留为 RECOVERY_REQUIRED，等待显式恢复。两者不共用状态处理器。
+
+聊天独立配置名为 agent_runtime.lease_seconds=120、heartbeat_seconds=30、execution_timeout_seconds=1800、queue_timeout_seconds=3600；本节是这四个值的唯一来源。心跳小于租约，类型配置随 Run 冻结；运行中的 deadline 不被后续 Nacos 修改追溯延长。
 
 检查点保存可继续执行的 Graph 状态；事件日志保存用户已经看到的输出。两者不能互相代替。默认示例的 LangGraph thread_id 由服务生成并映射到 run_id，同一 Run 恢复沿用它；跨轮会话记忆由项目根据持久消息构造，不允许前端指定任意 checkpointer thread_id。
 
@@ -166,9 +163,9 @@ Gateway 只对 `/api/v1/chat/runs/*/events` 采用流式路由：禁用响应聚
 
 | 状态 / 故障 | 处理合同 |
 | --- | --- |
-| QUEUED | 等待队首与额度；默认排队截止 60 分钟，超限转 FAILED，原因 QUEUE_TIMEOUT |
+| QUEUED | 等待队首与额度；排队截止取 queue_timeout_seconds，超限转 FAILED，原因 QUEUE_TIMEOUT |
 | QUEUED → CANCELLED | 用户显式取消，或领取前确认授权已撤销；只释放属于本 Run 的资源，不影响其他正在运行的轮次 |
-| RUNNING | 默认租约 120 秒，心跳 30 秒；执行预算累计 30 分钟，可按 Agent 类型受控配置 |
+| RUNNING | 租约/心跳取 lease_seconds/heartbeat_seconds；累计执行预算取 execution_timeout_seconds，可按 Agent 类型受控配置 |
 | RUNNING → WAITING_APPROVAL | 同事务保存 checkpoint、待确认操作与 waiting 事件，释放执行租约/容量并使旧 attempt 失效；不占着协程等人 |
 | WAITING_APPROVAL → QUEUED | 有权限的指定确认人批准当前 approval/version；同事务消费确认并写就绪 Outbox；保留会话槽，下次领取使用新 attempt |
 | WAITING_APPROVAL → CANCELLED | 拒绝、用户取消或默认 24 小时确认期限到达；释放会话槽；迟到批准不恢复执行 |
@@ -191,8 +188,7 @@ logical_call_id 来自已持久化的工具调用计划（例如保存后的模�
 
 取消操作写共享状态，Worker 在心跳、步骤边界和每次外部工具前检查；关闭页面只停止订阅，不默认取消。人工确认绑定操作输入摘要和当前版本，重复同一批准返回原结果，批准后不得修改参数。恢复人员需要说明查证依据，不能仅点击“重试”绕过不确定副作用检查。
 
-<a id="section-7"></a>
-<a id="d11-7"></a>
+<a id="capacity"></a>
 
 ## 7. 容量、版本兼容与可观测性
 
@@ -208,16 +204,15 @@ API 停机先从注册发现摘除并停止新连接，已有 SSE 在排空期�
 
 新增观测字段 tenant_id、conversation_id、run_id、attempt、agent_version；新增指标首个可见事件耗时、排队时间、活跃 SSE、事件写入/回放延迟、游标过期、checkpoint 失败、租约失效、待恢复数量、租户额度和模型用量。日志默认不输出完整对话、checkpoint payload 或工具隐私参数。
 
-<a id="section-8"></a>
-<a id="d11-8"></a>
+<a id="integration"></a>
 
 ## 8. 新项目接入和节点配置
 
-创建项目、初始化、双角色启动与 IDE 调试统一遵循[新项目接入指南·完整启动顺序与命令合同](../guides/新项目接入指南.md#d05)，不另有一套聊天部署入口。框架必须交付可运行的 agent-service 示例、假模型、可选 LangGraph 适配和聊天 Web；业务修改 agents、services、领域表和页面，技术运行能力使用 SDK。
+创建项目、初始化、双角色启动与 IDE 调试统一遵循[首次安装顺序](09-应用部署与运维设计.md#first-install)，不另有一套聊天部署入口。框架必须交付可运行的 agent-service 示例、假模型、可选 LangGraph 适配和聊天 Web；业务修改 agents、services、领域表和页面，技术运行能力使用 SDK。
 
 单 API/Worker 的聊天组合为 PG、Redis、Nacos、Rabbit、identity、gateway、Nginx、agent-api、agent-worker 共 9 个常驻容器；Nginx 同时托管可选业务静态文件。两台应用主机各一个 API/Worker 的验收组合增加两个角色容器，共 11 个。管理静态资源内置 identity 镜像，一次性迁移/初始化不计常驻数；对象存储、外部监控、自托管模型按项目实际另计。独立业务服务按需要再加，不以组件数量声称 HA。
 
-<a id="section-9"></a>
+<a id="fault-tests"></a>
 
 ## 9. 关键故障的验证场景
 
@@ -236,8 +231,7 @@ API 停机先从注册发现摘除并停止新连接，已有 SSE 在排空期�
 
 压测报告需记录模型模式、并发会话数、平均事件大小、事件保留策略、PG/Redis/Rabbit 配置、API/Worker 数及失败率。模拟模型结果只能证明框架调度与恢复；真实模型质量、外部工具幂等性和实际容量需要业务项目另行验收。
 
-
-参考资料：以下为前期调研保留的原始项目/官方资料入口；本轮没有重新核验其在线版本。框架具体默认策略由本文定义，不能认为引用组件就自动实现了全部业务合同；实施兼容冻结任务须复核版本与能力。
+参考资料：以下为组件参考资料；本次只重新核验了认证文档新增引用的 Spring 客户端模型与 NIST 密码建议，其余在线版本未重新核验。框架具体默认策略由本文定义，不能认为引用组件就自动实现了全部业务合同；实施兼容冻结任务须复核版本与能力。
 
 | 来源 | 参考用途 |
 | --- | --- |
