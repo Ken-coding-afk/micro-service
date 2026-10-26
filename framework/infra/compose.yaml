@@ -1,0 +1,108 @@
+# infra Compose:只定义第三方组件(设计 03·依赖清单与启用条件)。
+# 与 deploy/compose.yaml 是两个独立 Compose 项目,经下方 external network 互通。
+# 端口仅映射 loopback 开发端口;组件管理员凭证全部来自 --env-file 指定的本地环境文件。
+name: ken-infra
+
+networks:
+  infra-net:
+    external: true
+    # 项目专属网络,由 infra/init/run.py prepare-local 显式创建
+    name: ${PROJECT_CODE}-net
+
+volumes:
+  pgdata:
+  redisdata:
+  nacosdata:
+  nacoslogs:
+  rabbitdata:
+
+services:
+  postgres:
+    image: postgres:17.11
+    container_name: ${PROJECT_CODE}-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    # 显式加载样例参数;实例参数维护归 infra(设计 03·组件运行配置)
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      infra-net:
+        aliases: [postgres]
+
+  redis:
+    image: redis:7.2.16-alpine
+    container_name: ${PROJECT_CODE}-redis
+    ports:
+      - "127.0.0.1:16379:6379"
+    volumes:
+      - redisdata:/data
+      # 挂载含真实密码的本地生成副本(prepare-local 生成 .local/redis/redis.conf);
+      # 仓库内 redis.conf 是占位模板,秘密不进 Git(设计 02)
+      - ${REDIS_CONF_FILE:-./redis/redis.conf}:/usr/local/etc/redis/redis.conf:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      infra-net:
+        aliases: [redis]
+
+  nacos:
+    image: nacos/nacos-server:v3.2.4
+    container_name: ${PROJECT_CODE}-nacos
+    environment:
+      MODE: standalone
+      # Nacos 3.2 默认强制鉴权;token 须为 Base64(由 prepare-local 生成)
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE}
+    ports:
+      # 客户端 API / gRPC / 控制台(console 与引擎端口分离,admin 初始化走 console 端口)
+      - "127.0.0.1:8848:8848"
+      - "127.0.0.1:9848:9848"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - nacosdata:/home/nacos/data
+      - nacoslogs:/home/nacos/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8848/nacos/ > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      infra-net:
+        aliases: [nacos]
+
+  # Rabbit 仅文档异步/聊天组合启用(--profile mq);纯同步 HTTP 示例不启动(设计 03)
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: ${PROJECT_CODE}-rabbitmq
+    profiles: [mq]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_ADMIN_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      infra-net:
+        aliases: [rabbitmq]

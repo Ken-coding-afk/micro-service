@@ -1,0 +1,2 @@
+# identity-service 运行参数(仅允许覆盖 application-shared 声明的键)
+log_level: INFO

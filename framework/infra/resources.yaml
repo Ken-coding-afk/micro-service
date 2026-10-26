@@ -1,0 +1,61 @@
+# 资源声明清单(设计 03·幂等、增量与部分失败恢复)
+# schema 固定:resource_id / component / owner_service / name_binding / management / roles / depends_on
+# 禁止包含:秘密值、任意 SQL、任意 shell。实际名称由 PROJECT_CODE/APP_ENV 绑定解析:
+#   数据库与角色 = {project_code 下划线化}_{name_binding.database|role}
+#   Nacos namespace / Rabbit vhost = {PROJECT_CODE}-{APP_ENV}
+# 本清单是框架默认资源;项目可增删,但 identity-db 属基础组合。
+
+resources:
+  - resource_id: identity-db
+    component: postgresql
+    owner_service: identity-service
+    management: create
+    name_binding:
+      database: identity
+    roles:
+      owner: identity_owner        # NOLOGIN,数据库归属锚点
+      migrator: identity_migrator  # 迁移账号,拥有该服务 DDL 能力
+      runtime: identity_runtime    # 运行账号,无 DDL/超级用户/BYPASSRLS
+    depends_on: []
+
+  - resource_id: document-db
+    component: postgresql
+    owner_service: document-service
+    management: create
+    name_binding:
+      database: document
+    roles:
+      owner: document_owner
+      migrator: document_migrator
+      runtime: document_runtime
+    depends_on: []
+
+  - resource_id: agent-db
+    component: postgresql
+    owner_service: agent-service
+    management: create
+    name_binding:
+      database: agent
+    roles:
+      owner: agent_owner
+      migrator: agent_migrator
+      runtime: agent_runtime
+    depends_on: []
+
+  - resource_id: nacos-namespace
+    component: nacos
+    owner_service: platform
+    management: create
+    name_binding:
+      namespace: default          # 解析为 {PROJECT_CODE}-{APP_ENV}
+    depends_on: []
+
+  - resource_id: rabbit-vhost
+    component: rabbitmq
+    owner_service: platform
+    management: create
+    name_binding:
+      vhost: default              # 解析为 {PROJECT_CODE}-{APP_ENV}
+    roles:
+      app: app                    # 应用发布/消费账号,仅授予本 vhost 权限
+    depends_on: []
