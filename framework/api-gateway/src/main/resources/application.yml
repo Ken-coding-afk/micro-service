@@ -1,0 +1,8 @@
+# T-01 骨架配置：路由与 BFF 参数由 Nacos 下发（设计 02），本地端口仅为开发默认值。
+spring:
+  application:
+    name: api-gateway
+  main:
+    web-application-type: reactive
+server:
+  port: 8080

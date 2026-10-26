@@ -1,0 +1,7 @@
+# T-01 骨架配置：实际运行参数（Nacos 地址、数据库、issuer 等）由环境注入与 Nacos 下发，
+# 详见《配置与服务发现设计》。本地端口仅为开发默认值。
+spring:
+  application:
+    name: identity-service
+server:
+  port: 8081

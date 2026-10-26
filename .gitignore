@@ -1,0 +1,35 @@
+# 构建产物
+target/
+dist/
+build/
+*.jar
+!mvnw
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+framework/identity-service/admin/dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 本地环境与秘密(设计 02:秘密不进 Git)
+*.local
+.local/
+*.env
+!*.env.example
+secrets/
+
+# 运行时
+*.log
+.flattened-pom.xml
