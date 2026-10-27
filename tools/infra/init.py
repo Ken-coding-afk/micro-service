@@ -76,6 +76,10 @@ def _prepare_local_files(args: argparse.Namespace) -> int:
     existing = contract.parse_env_file(source).values
     if existing.get("APP_ENV") != "local":
         raise ValueError("prepare-local 只允许 APP_ENV=local")
+    redis_template = Path(
+        getattr(args, "redis_template", None) or INPUT_ROOT / "infra/redis/redis.conf"
+    )
+    template = redis_template.read_text(encoding="utf-8")
     lines = []
     for raw in source.read_text(encoding="utf-8").splitlines():
         key, sep, value = raw.partition("=")
@@ -127,9 +131,6 @@ def _prepare_local_files(args: argparse.Namespace) -> int:
     # 渲染 Redis 本地配置副本(仓库模板中的占位符替换为真实密码)
     redis_dir = local_dir / "redis"
     redis_dir.mkdir(exist_ok=True)
-    template = (INPUT_ROOT / "infra" / "redis" / "redis.conf").read_text(
-        encoding="utf-8"
-    )
     rendered = template.replace("__REDIS_PASSWORD__", env["REDIS_PASSWORD"])
     redis_conf = redis_dir / "redis.conf"
     if not redis_conf.exists():
@@ -771,6 +772,7 @@ def main() -> int:
         "--phase", required=True, choices=["prepare-local", "resources"]
     )
     parser.add_argument("--resources", help="覆盖默认资源声明清单(测试用)")
+    parser.add_argument("--redis-template", type=Path, help="prepare-local 使用的项目 Redis 模板")
     args = parser.parse_args()
     try:
         if args.phase == "prepare-local":

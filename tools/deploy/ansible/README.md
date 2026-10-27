@@ -8,7 +8,7 @@
 
 每份部署包含项目自己的 config、infra、deploy、业务迁移和权限清单，以及本发行运维工具。部署前通过现有 CI 的制品传输/SSH 文件传输放到管理机 `project_source` 和目标机 `project_root`；不要打包 `.local`、`.venv`、`.git` 或秘密。当前入口不实现另一个制品分发平台。目标目录中的文件必须与本次 `deploy/release.yaml` SHA-256 清单一致；不能把更新工作树视为发布成功。
 
-从 `deploy/release.yaml.example` 创建自己的清单，填写项目、环境、业务发行号、准确镜像摘要、Compose 文件和有序迁移目标（身份库在前）。`files` 登记全部 Compose、迁移、权限目录、Nacos 源、infra 配置和 Nginx 模板的实际 SHA-256。构建流水线用标准 SHA-256 工具计算后保存该清单。环境文件和秘密另行受控提供，不写入 files。清单是具体项目的一次发布输入；不能拿框架仓库的占位示例直接运行。
+源码项目在构建前从 `deploy/release.yaml.example` 准备发布策略，连同全部构建输入提交；完整构建、上传镜像后，将 digest 映射保存在项目 `.local/`，再用同次构建记录执行 `manage.py build --package-only`。部署包的 `deploy/release.yaml` 由打包器生成，已包含准确镜像、Compose、迁移、文件摘要和源码版本，不再从示例重写一份，也不手工改 files。要改变输入，应回到源码项目提交、重建并重新打包。环境文件与秘密单独受控提供。
 
 本轮本地候选镜像尚未上传制品库，不能在服务器上拉取 `local/...`。正式发布前必须完成制品上传授权与真实环境验收。
 

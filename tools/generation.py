@@ -118,10 +118,19 @@ def register(
         "port": port,
         "peer": peer,
     }
-    write_yaml(path, config)
     from build import business_compose
 
-    write_yaml(root / "deploy/business.compose.yaml", business_compose(config))
+    compose_path = root / "deploy/business.compose.yaml"
+    compose = read_yaml(compose_path) if compose_path.exists() else {"services": {}}
+    if not isinstance(compose, dict) or not isinstance(compose.get("services"), dict):
+        raise ValueError("business.compose.yaml 必须包含 services 对象")
+    if name in compose["services"]:
+        raise ValueError("Compose 服务已存在，拒绝覆盖：" + name)
+    compose["services"][name] = business_compose({"services": {name: config["services"][name]}})[
+        "services"
+    ][name]
+    write_yaml(path, config)
+    write_yaml(compose_path, compose)
     values = replacements(language, name, package, peer)
     for source in (FRAMEWORK / "template/config/nacos").glob(f"sample-{language}-service*"):
         write(
@@ -183,6 +192,10 @@ def generate(args: argparse.Namespace) -> None:
             relative = path.relative_to(FRAMEWORK / "template")
             if not path.is_file() or IGNORED.intersection(relative.parts):
                 continue
+            if relative.parts[:2] == ("config", "nacos") and path.name.startswith(
+                ("sample-java-service", "sample-python-service")
+            ):
+                continue  # 服务配置由 register 按实际服务名生成，不复制原名占位文件。
             if (
                 path.suffix in {".yaml", ".yml", ".json", ".conf", ".example", ".j2", ".ini"}
                 and "tests" not in relative.parts

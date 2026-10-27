@@ -27,4 +27,4 @@ python manage.py create --output ../equipment-platform --ref <固定标签或提
 
 本轮源码工作区仍在按[实施计划](docs/plans/2026-10-27-源码工作区与新项目接入改造-plan.md)验证。历史制品候选的验收不能算作新路径已通过；真实双机、外部提供方、生产 ACME、容量与生产恢复仍未验证。没有对外推送本轮镜像或源码。
 
-权威设计、指南与编码规范分别维护，入口见[文档导航](docs/01-文档导航.md)。协作规则见[AGENTS.md](AGENTS.md)、[CLAUDE.md](CLAUDE.md)。完成的历史计划保留原证据，不追改；最新设计基线 D-20261027-07。
+权威设计、指南与编码规范分别维护，入口见[文档导航](docs/01-文档导航.md)。协作规则见[AGENTS.md](AGENTS.md)、[CLAUDE.md](CLAUDE.md)。完成的历史计划保留原证据，不追改；最新设计基线 D-20261027-08。

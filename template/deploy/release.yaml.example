@@ -1,5 +1,6 @@
-# 项目构建后填写并保存为 deploy/release.yaml；不是默认启用的发行。
-# files 是实际要部署材料的 SHA-256；环境秘密只引用绝对路径，不放进本文件。
+# 构建前保存为 deploy/release.yaml，填写发布策略并与源码一起提交。
+# project/environment/id/images/files/migrations 等由 package-only 在部署包内补全；不手工计算摘要。
+# 环境秘密不放进本文件；构建后修改策略必须提交并重新构建。
 project: sample-project
 environment: test
 id: sample-0.1.0
@@ -11,7 +12,7 @@ files:
   deploy/compose.yaml: replace-with-sha256
   deploy/compose.server.yaml: replace-with-sha256
   infra/resources.yaml: replace-with-sha256
-  # 还需登记本次全部 SQL/Alembic 文件、权限清单、Nacos 源和 Nginx 配置。
+  # 部署包由打包器登记本次 SQL/Alembic、权限清单、Nacos 源和 Nginx 配置。
 migrations:
   - target: identity-db
     tool: flyway

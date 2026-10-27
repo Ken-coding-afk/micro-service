@@ -277,6 +277,18 @@ def bundle(root: Path, args, config: dict, identity: dict) -> None:
     compose = read_yaml(output / "deploy/compose.yaml")
     business = read_yaml(root / "deploy/business.compose.yaml")
     compose["services"].update(business["services"])
+    for section, declaration in business.items():
+        if section == "services":
+            continue
+        if section not in compose:
+            compose[section] = declaration
+        elif isinstance(compose[section], dict) and isinstance(declaration, dict):
+            for name, value in declaration.items():
+                if name in compose[section] and compose[section][name] != value:
+                    raise ValueError(f"Compose 顶层声明冲突：{section}.{name}")
+            compose[section].update(declaration)
+        elif compose[section] != declaration:
+            raise ValueError(f"Compose 顶层声明冲突：{section}")
     for name, image in images.items():
         compose["services"][name]["image"] = image
     compose["services"]["identity-bootstrap"]["image"] = images["identity-service"]

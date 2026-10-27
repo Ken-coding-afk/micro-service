@@ -107,10 +107,17 @@ python manage.py build --release 0.1.1 --service {python} --output dist/0.1.1-py
 
 完整构建从固定源码生成两个基础服务和业务镜像；Python 在 Linux 内非 editable 安装，不需要手工 wheelhouse。局部构建不是完整发行。业务 Web 默认使用 web/index.html；有 Vite 等构建的项目先构建，再在正式打包时传 --web-root 指向静态产物。
 
-正式发布先提交全部构建输入、把固定源码提交到可获取远程，然后重建完整镜像。由获准运维自行 push 镜像到团队仓库，写 images JSON（identity-service/api-gateway/nginx/所有业务服务 → repository@sha256）。复制 deploy/release.yaml.example 为 deploy/release.yaml，填写 owner、approval_reference、rollback_window_hours 和兼容旧版本；主机/域名/TLS/环境秘密按固定框架 tools/deploy/ansible/README.md 准备。
+正式发布按以下顺序操作；前面的构建命令可用于开发检查，不能替代此顺序：
+
+1. **构建前**复制 deploy/release.yaml.example 为 deploy/release.yaml，填写 owner、approval_reference、rollback_window_hours、compatible_previous_versions 及兼容策略；完成本次业务代码、配置、迁移和依赖锁。
+2. 提交全部构建输入（包括发布策略和框架 gitlink），将项目及框架提交推到可获取远程，保持工作树干净，再构建完整镜像。
+3. 由获准运维 push 镜像，取得 repository@sha256，镜像映射保存到被 Git 忽略的 .local/images-production.json；环境秘密也放在 .local 或仓库外，不再改源码或发布策略。
+4. 用同次构建记录执行下面的 package-only。如果中途修改发布策略、代码或锁文件，先提交并重新构建；不能沿用旧镜像记录。
+
+源码中的 deploy/release.yaml 是发布策略输入；部署包中的同名文件由打包器补全源码、镜像、迁移及文件摘要，不手工计算或重写。主机/域名/TLS/环境秘密按固定框架 tools/deploy/ansible/README.md 准备。
 
 ```bash
-python manage.py build --release 0.1.0 --output dist/0.1.0-test --package-only --images <镜像映射.json> --env-file <测试环境文件>
+python manage.py build --release 0.1.0 --output dist/0.1.0-test --package-only --images .local/images-production.json --env-file <测试环境文件>
 ```
 
 打包核对上传镜像与本次构建 image ID、源码提交和文件摘要。部署载荷不带源码/.local/秘密；运维在 Linux/WSL 上按包内 tools/deploy/ansible/README.md 执行 initialize → migrate → 首次 bootstrap → deploy → 验收。正式单机/多机都走镜像仓库；没有新离线预载发布模式。缺真实双机、TLS 或第三方提供方验收时不能称为生产已验证。

@@ -229,6 +229,13 @@ def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, mo
 
     config = read_yaml(workspace / "config/development.yaml")
     identity = {"project_commit": "a" * 40, "framework_commit": "b" * 40, "dirty": False}
+    business = read_yaml(workspace / "deploy/business.compose.yaml")
+    business["volumes"] = {"project-data": {}}
+    business["networks"] = {"project-net": {"driver": "bridge"}}
+    business["x-project"] = {"owner": "business-team"}
+    business["services"]["equipment-service"]["volumes"].append("project-data:/data")
+    business["services"]["equipment-service"]["networks"].append("project-net")
+    write_yaml(workspace / "deploy/business.compose.yaml", business)
     names = ["identity-service", "api-gateway", "nginx", *config["services"]]
     images = {name: "registry.invalid/" + name + "@sha256:" + "c" * 64 for name in names}
     write(workspace / ".local/images.json", json.dumps(images))
@@ -272,3 +279,135 @@ def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, mo
     assert (output / "artifacts/inspection-service-migrations/env.py").is_file()
     assert (output / "tools/deploy/verify_release.py").is_file()
     assert all(name in read_yaml(output / "deploy/compose.yaml")["services"] for name in names)
+    bundled = read_yaml(output / "deploy/compose.yaml")
+    assert bundled["volumes"] == business["volumes"]
+    assert bundled["networks"]["project-net"] == business["networks"]["project-net"]
+    assert bundled["x-project"] == business["x-project"]
+    assert "application" in bundled["networks"]
+    assert "project-data:/data" in bundled["services"]["equipment-service"]["volumes"]
+    assert "project-net" in bundled["services"]["equipment-service"]["networks"]
+
+    business["networks"]["application"] = {"external": False}
+    write_yaml(workspace / "deploy/business.compose.yaml", business)
+    args.output = workspace / "dist/conflict"
+    with pytest.raises(ValueError, match="Compose 顶层声明冲突：networks.application"):
+        build.bundle(workspace, args, config, identity)
+
+
+@pytest.mark.parametrize("language", ["java", "python"])
+def test_add_service_preserves_existing_compose_settings(workspace, language):
+    import cli
+    from common import write_yaml
+
+    path = workspace / "deploy/business.compose.yaml"
+    compose = read_yaml(path)
+    compose["services"]["equipment-service"].update(
+        {
+            "environment": {"BUSINESS_MODE": "project-owned"},
+            "mem_limit": "768m",
+            "volumes": ["project-data:/data"],
+            "labels": {"team": "project-owner"},
+        }
+    )
+    compose["networks"] = {"project-net": {"external": True}}
+    compose["volumes"] = {"project-data": {}}
+    compose["x-project"] = {"owner": "project-team"}
+    write_yaml(path, compose)
+    cli.add_service(
+        workspace,
+        argparse.Namespace(
+            language=language,
+            name="report-service",
+            package="com.acme.report" if language == "java" else "report",
+            port=49100,
+        ),
+    )
+    after = read_yaml(path)
+    assert after["services"].pop("report-service")
+    assert after == compose
+
+
+def test_compose_name_conflict_does_not_change_registration(workspace):
+    import cli
+    from common import write_yaml
+
+    compose_path = workspace / "deploy/business.compose.yaml"
+    compose = read_yaml(compose_path)
+    compose["services"]["scoring-service"] = {"image": "project-owned"}
+    write_yaml(compose_path, compose)
+    controlled = [
+        "config/development.yaml",
+        "config/nacos/api-gateway.yaml",
+        "deploy/business.compose.yaml",
+        "pom.xml",
+    ]
+    before = {name: (workspace / name).read_bytes() for name in controlled}
+    with pytest.raises(ValueError, match="Compose 服务已存在"):
+        cli.add_service(
+            workspace,
+            argparse.Namespace(
+                language="python", name="scoring-service", package="scoring", port=49100
+            ),
+        )
+    assert {name: (workspace / name).read_bytes() for name in controlled} == before
+    assert not (workspace / "services/scoring-service").exists()
+
+
+def test_created_nacos_configuration_only_contains_selected_services(workspace):
+    assert {p.name for p in (workspace / "config/nacos").iterdir()} == {
+        "api-gateway.yaml",
+        "identity-service.yaml",
+        "application-shared.yaml",
+        "equipment-service.yaml",
+        "equipment-service-sentinel-flow.json",
+        "equipment-service-sentinel-degrade.json",
+        "inspection-service.yaml",
+    }
+
+
+def test_initializer_passes_project_redis_template(workspace, monkeypatch):
+    import local
+
+    class StopBeforeInfrastructure(Exception):
+        pass
+
+    calls = []
+    monkeypatch.setattr(
+        local, "prepare_environment", lambda *a: (workspace / ".local/environment.env", "127.0.0.1")
+    )
+    monkeypatch.setattr(local, "run", lambda *a, **k: None)
+    monkeypatch.setattr(local, "base_images", lambda *a: {})
+
+    def stop(root, path, *args):
+        calls.append((root, path, args))
+        raise StopBeforeInfrastructure
+
+    monkeypatch.setattr(local, "tool", stop)
+    with pytest.raises(StopBeforeInfrastructure):
+        local.initialize(workspace, argparse.Namespace(dev_host=None))
+    assert calls == [
+        (
+            workspace,
+            "tools/infra/init.py",
+            (
+                "--env-file",
+                workspace / ".local/environment.env",
+                "--phase",
+                "prepare-local",
+                "--redis-template",
+                workspace / "infra/redis/redis.conf",
+            ),
+        )
+    ]
+
+
+def test_maven_wrapper_is_published_as_executable():
+    import subprocess
+
+    from common import FRAMEWORK
+
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--stage", "mvnw"], cwd=FRAMEWORK, text=True
+    )
+    assert tracked.split()[0] == "100755"
+    assert b"\r\n" not in (FRAMEWORK / "mvnw").read_bytes()

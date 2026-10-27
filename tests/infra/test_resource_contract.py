@@ -166,3 +166,48 @@ def test_rabbit_permission_failure_not_reported_as_success(tmp_path, monkeypatch
         "_ENV_DIR": str(tmp_path),
     }
     assert init._ensure_rabbit_vhost(resource, env, {}) == "FAILED"
+
+
+def test_project_redis_template_used_once_and_runtime_preserved(tmp_path, monkeypatch):
+    path = tmp_path / "environment.env"
+    path.write_text(
+        (ROOT / "template/config/environments/local.env.example").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    project_template = tmp_path / "infra/redis/redis.conf"
+    project_template.parent.mkdir(parents=True)
+    project_template.write_text(
+        "requirepass __REDIS_PASSWORD__\nmaxmemory 123mb\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(init.subprocess, "run", Mock(return_value=argparse.Namespace(returncode=0)))
+    args = argparse.Namespace(env_file=str(path), redis_template=project_template)
+    assert init.phase_prepare_local(args) == 0
+    first_env = path.read_bytes()
+    runtime = tmp_path / "redis/redis.conf"
+    expected = (
+        "requirepass "
+        + init.contract.parse_env_file(path).values["REDIS_PASSWORD"]
+        + "\nmaxmemory 123mb\n"
+    )
+    assert runtime.read_text(encoding="utf-8") == expected
+    runtime.write_text(expected + "# operator-owned\n", encoding="utf-8")
+    project_template.write_text("new-template\n", encoding="utf-8")
+    assert init.phase_prepare_local(args) == 0
+    assert runtime.read_text(encoding="utf-8") == expected + "# operator-owned\n"
+    assert path.read_bytes() == first_env
+
+
+def test_missing_explicit_redis_template_never_falls_back(tmp_path, monkeypatch):
+    path = tmp_path / "environment.env"
+    path.write_text(
+        (ROOT / "template/config/environments/local.env.example").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    before = path.read_bytes()
+    monkeypatch.setattr(init.subprocess, "run", lambda *a, **k: pytest.fail("no component calls"))
+    with pytest.raises(FileNotFoundError):
+        init.phase_prepare_local(
+            argparse.Namespace(env_file=str(path), redis_template=tmp_path / "missing.conf")
+        )
+    assert path.read_bytes() == before
+    assert not (tmp_path / "redis/redis.conf").exists()

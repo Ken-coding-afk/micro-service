@@ -356,7 +356,16 @@ def initialize(root: Path, args) -> None:
             run(["uv", "sync", "--frozen", "--project", service_directory(root, record)], cwd=root)
     print("[init] 构建基础镜像", flush=True)
     images = base_images(root)
-    tool(root, "tools/infra/init.py", "--env-file", env_path, "--phase", "prepare-local")
+    tool(
+        root,
+        "tools/infra/init.py",
+        "--env-file",
+        env_path,
+        "--phase",
+        "prepare-local",
+        "--redis-template",
+        root / "infra/redis/redis.conf",
+    )
     tool(
         root,
         "tools/infra/up.py",
