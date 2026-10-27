@@ -47,13 +47,19 @@ public final class IdentityBootstrapMain {
 
   public static int run(Map<String, String> env, String[] args) {
     try {
-      if (args.length != 1 || !Set.of("bootstrap", "bootstrap-local").contains(args[0]))
-        throw invalid();
+      if (args.length != 1
+          || !Set.of(
+                  "bootstrap",
+                  "bootstrap-local",
+                  "bootstrap-services-technical",
+                  "bootstrap-services-applications")
+              .contains(args[0])) throw invalid();
       boolean local = args[0].equals("bootstrap-local");
+      boolean services = args[0].startsWith("bootstrap-services-");
       String environment = required(env, "APP_ENV");
       new ClientPolicyRules(environment);
       if (local && !environment.equals("local")) throw invalid();
-      var command = local ? null : command(env);
+      var command = local || services ? null : command(env);
       String database = identifier(required(env, "DB_NAME"));
       String user = identifier(required(env, "DB_USER"));
       String host = required(env, "PG_HOST");
@@ -101,6 +107,36 @@ public final class IdentityBootstrapMain {
                 new RecentAuthentication(policies, clock));
         var catalog =
             new BuiltinPermissionCatalog(mappers.getMapper(PermissionCatalogMapper.class), manager);
+        if (services) {
+          var input =
+              JSON.readTree(secret(required(env, "SERVICE_PROVISIONING_SECRET_FILE"), 65536));
+          var entries =
+              new java.util.ArrayList<
+                  com.ken.platform.identity.service.oauth.ServiceProvisioning.Service>();
+          if (!input.isObject() || !input.path("services").isArray()) throw invalid();
+          for (var entry : input.get("services")) {
+            entries.add(
+                new com.ken.platform.identity.service.oauth.ServiceProvisioning.Service(
+                    text(entry, "name"),
+                    secret(text(entry, "publisher_secret_file"), 128),
+                    secret(text(entry, "resource_secret_file"), 128),
+                    secret(text(entry, "gateway_secret_file"), 128),
+                    environment.equals("local") ? text(entry, "swagger_redirect") : ""));
+          }
+          new com.ken.platform.identity.service.oauth.ServiceProvisioning(
+                  jdbc, manager, store, clients)
+              .apply(
+                  required(env, "PROJECT_CODE"),
+                  environment,
+                  required(env, "PUBLIC_ORIGIN"),
+                  database,
+                  args[0].substring("bootstrap-services-".length()),
+                  entries,
+                  secret(text(input, "web_secret_file"), 128),
+                  input.path("demo").asBoolean(false));
+          System.out.println("{\"status\":\"VERIFIED\",\"policy\":\"EXISTING_PRESERVED\"}");
+          return 0;
+        }
         if (local) {
           boolean created =
               new com.ken.platform.identity.service.oauth.LocalDevelopmentBootstrap(
@@ -144,8 +180,10 @@ public final class IdentityBootstrapMain {
   private static com.ken.platform.identity.service.oauth.LocalDevelopmentBootstrap.Input
       localCommand(Map<String, String> env) throws Exception {
     var root = JSON.readTree(secret(required(env, "LOCAL_BOOTSTRAP_SECRET_FILE"), 65536));
-    if (!root.isObject() || !root.get("services").isArray() || root.get("services").size() != 2)
-      throw invalid();
+    if (!root.isObject()
+        || !root.get("services").isArray()
+        || root.get("services").isEmpty()
+        || root.get("services").size() > 100) throw invalid();
     var services =
         new java.util.ArrayList<
             com.ken.platform.identity.service.oauth.LocalDevelopmentBootstrap.Service>();

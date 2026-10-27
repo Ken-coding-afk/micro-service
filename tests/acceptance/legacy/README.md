@@ -1,6 +1,6 @@
 # 独立项目验证
 
-> 维护者历史回归材料：固定 sample 服务，不作为新项目接入入口。新项目使用 manage.py；本轮未运行这些 Docker/浏览器脚本。
+> 维护者历史回归材料：固定 sample 服务，不作为新项目接入入口。新项目使用根 scripts/ 入口；本轮未运行这些 Docker/浏览器脚本。
 
 这些脚本是示例的验证夹具，不是框架运行依赖，只允许本机 HTTP 入口。它们通过真实浏览器、BFF 和管理 API 操作，不向身份数据库插入账号、客户端或角色。运行前按上级 README 完成发行、基础设施、迁移、bootstrap 和两个权限清单发布。
 
@@ -22,13 +22,13 @@ node tests/acceptance/legacy/tenant-onboarding.cjs
 uv run --frozen python tests/acceptance/legacy/bind_business.py --env-file .local/environment.env --java-image local/sample-java:0.1.0 --python-image local/sample-python:0.1.0
 ```
 
-该脚本只生成示例服务的受限凭据绑定，并在已准备的 Gateway 绑定中加入 web/readers；不替换已有不同凭据。将 `template/config/nacos/` 的业务服务配置及 Gateway 路由合入项目 `config/nacos/`。在全新示例项目可直接复制此目录的 YAML 和 Sentinel JSON；已有项目必须核对差异后合并。
+该脚本只生成示例服务的受限凭据绑定，并在已准备的 Gateway 绑定中加入 web/readers；不替换已有不同凭据。将 `config/nacos/` 的业务服务配置及 Gateway 路由合入项目 `config/nacos/`。在全新示例项目可直接复制此目录的 YAML 和 Sentinel JSON；已有项目必须核对差异后合并。
 
 ```powershell
 uv run --frozen python config/publish.py --env-file .local/environment.env
-docker compose --env-file .local/runtime/compose.env -f template/deploy/compose.yaml -f template/deploy/compose.local.yaml -f tests/acceptance/legacy/compose.yaml --profile java --profile python up -d --wait sample-java-service sample-python-service api-gateway
-docker compose --env-file .local/runtime/compose.env -f template/deploy/compose.yaml -f template/deploy/compose.local.yaml exec nginx nginx -t
-docker compose --env-file .local/runtime/compose.env -f template/deploy/compose.yaml -f template/deploy/compose.local.yaml exec nginx nginx -s reload
+docker compose --env-file .local/runtime/compose.env -f deploy/compose.yaml -f deploy/compose.local.yaml -f tests/acceptance/legacy/compose.yaml --profile java --profile python up -d --wait sample-java-service sample-python-service api-gateway
+docker compose --env-file .local/runtime/compose.env -f deploy/compose.yaml -f deploy/compose.local.yaml exec nginx nginx -t
+docker compose --env-file .local/runtime/compose.env -f deploy/compose.yaml -f deploy/compose.local.yaml exec nginx nginx -s reload
 node tests/acceptance/legacy/verify-business.cjs
 node tests/acceptance/legacy/verify-admin.cjs
 ```
@@ -57,8 +57,8 @@ node tests/acceptance/legacy/verify-project-isolation.cjs <项目A绝对目录> 
 ```powershell
 node tests/acceptance/legacy/save-resilience-session.cjs beta
 node tests/acceptance/legacy/save-resilience-session.cjs alpha
-docker compose --env-file .local/runtime/compose.env -f template/deploy/compose.yaml -f template/deploy/compose.local.yaml -f tests/acceptance/legacy/compose.yaml -f tests/acceptance/legacy/compose.resilience.yaml --profile java --profile python up -d --wait api-gateway gateway-peer sample-java-peer
-docker compose --env-file .local/runtime/compose.env -f template/deploy/compose.yaml -f template/deploy/compose.local.yaml exec nginx nginx -s reload
+docker compose --env-file .local/runtime/compose.env -f deploy/compose.yaml -f deploy/compose.local.yaml -f tests/acceptance/legacy/compose.yaml -f tests/acceptance/legacy/compose.resilience.yaml --profile java --profile python up -d --wait api-gateway gateway-peer sample-java-peer
+docker compose --env-file .local/runtime/compose.env -f deploy/compose.yaml -f deploy/compose.local.yaml exec nginx nginx -s reload
 ```
 
 覆盖文件增加第二个网关和 Java 实例，使用不同 Nacos 注册地址；网关测试端口默认只绑定 loopback 的 19092/19093，可用 `RESILIENCE_GATEWAY_A_PORT/B_PORT` 改为未占用端口。所有相对路径以首个 Compose 文件所在目录解析，不改变 `-f` 的顺序。

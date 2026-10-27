@@ -1,0 +1,38 @@
+services:
+  sample-java-service:
+    image: ${SAMPLE_JAVA_SERVICE_IMAGE:?指定业务镜像}
+    env_file: ${RUNTIME_DIR}/sample-java-service.env
+    volumes:
+    - ${RUNTIME_DIR}/sample-java-service-secrets:/run/secrets:ro
+    networks:
+    - application
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS "http://localhost:$${SERVICE_BIND_PORT}/actuator/health/readiness"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 60s
+  sample-python-service:
+    image: ${SAMPLE_PYTHON_SERVICE_IMAGE:?指定业务镜像}
+    env_file: ${RUNTIME_DIR}/sample-python-service.env
+    volumes:
+    - ${RUNTIME_DIR}/sample-python-service-secrets:/run/secrets:ro
+    networks:
+    - application
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ['SERVICE_BIND_PORT']
+        + '/actuator/health/readiness', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 60s

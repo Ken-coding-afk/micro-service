@@ -70,7 +70,7 @@ def test_nacos_service_override_only_allowlisted(tmp_path):
 
 
 def test_committed_nacos_source_valid():
-    issues = contract.validate_nacos_source(FRAMEWORK_ROOT / "template/config/nacos")
+    issues = contract.validate_nacos_source(FRAMEWORK_ROOT / "config/nacos")
     assert issues == []
 
 

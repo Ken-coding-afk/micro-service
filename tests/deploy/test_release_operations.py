@@ -25,14 +25,14 @@ def module(name, path):
 
 
 ROOT = Path(__file__).parents[2]
-verify = module("verify_release", ROOT / "tools/deploy/verify_release.py")
-tls = module("validate_tls", ROOT / "tools/deploy/validate_tls.py")
-up = module("infra_up_release", ROOT / "tools/infra/up.py")
-sys.path.insert(0, str(ROOT / "tools/deploy"))
+verify = module("verify_release", ROOT / "scripts/deploy/verify_release.py")
+tls = module("validate_tls", ROOT / "scripts/deploy/validate_tls.py")
+up = module("infra_up_release", ROOT / "scripts/infra/up.py")
+sys.path.insert(0, str(ROOT / "scripts/deploy"))
 activate = module(
-    "activate_certificate", ROOT / "tools/deploy/activate_certificate.py"
+    "activate_certificate", ROOT / "scripts/deploy/activate_certificate.py"
 )
-deployment = module("deployment_receipt", ROOT / "tools/deploy/deployment_receipt.py")
+deployment = module("deployment_receipt", ROOT / "scripts/deploy/deployment_receipt.py")
 
 
 def release(root):
@@ -323,16 +323,16 @@ def test_ansible_rollback_checks_current_receipt_inside_lock(tmp_path):
         encoding="utf-8",
     )
     # 使用实际 deploy.yaml 的锁内前置检查；不执行真实应用更新。
-    controller = yaml.safe_load((ROOT / "tools/deploy/ansible/deploy.yaml").read_text())[1]
+    controller = yaml.safe_load((ROOT / "scripts/deploy/ansible/deploy.yaml").read_text())[1]
     play = tmp_path / "rollback-check.yaml"
     play.write_text(
         yaml.safe_dump(
             [
-                {"import_playbook": str(ROOT / "tools/deploy/ansible/controller-start.yaml")},
+                {"import_playbook": str(ROOT / "scripts/deploy/ansible/controller-start.yaml")},
                 controller,
                 {
                     "import_playbook": str(
-                        ROOT / "tools/deploy/ansible/controller-finish.yaml"
+                        ROOT / "scripts/deploy/ansible/controller-finish.yaml"
                     )
                 },
             ]
@@ -374,8 +374,8 @@ def test_ansible_failure_keeps_lock_and_stops_next_host(tmp_path):
         encoding="utf-8",
     )
     play = tmp_path / "verify.yaml"
-    start = ROOT / "tools/deploy/ansible/controller-start.yaml"
-    finish = ROOT / "tools/deploy/ansible/controller-finish.yaml"
+    start = ROOT / "scripts/deploy/ansible/controller-start.yaml"
+    finish = ROOT / "scripts/deploy/ansible/controller-finish.yaml"
     play.write_text(
         f"- import_playbook: {start}\n"
         "- hosts: apps\n  gather_facts: false\n  serial: 1\n"
@@ -478,7 +478,7 @@ def test_certificate_switch_restores_previous_reference_if_reload_fails(tmp_path
 )
 def test_real_nginx_tls_uses_validated_certificate_and_rejects_internal_route(tmp_path):
     certificate(tmp_path / "certificates/current", "app.example.com")
-    renderer = "from pathlib import Path;from jinja2 import Template;Path('/fixture/default.conf').write_text(Template(Path('/template/deploy/nginx/server.conf.j2').read_text()).render(edge_server_name='app.example.com',edge_gateway_upstreams=['127.0.0.1:18080']))"
+    renderer = "from pathlib import Path;from jinja2 import Template;Path('/fixture/default.conf').write_text(Template(Path('/deploy/nginx/server.conf.j2').read_text()).render(edge_server_name='app.example.com',edge_gateway_upstreams=['127.0.0.1:18080']))"
     subprocess.run(
         [
             "docker",
@@ -674,7 +674,7 @@ def test_first_install_waits_for_all_hosts_before_public_smoke(tmp_path):
                 }
             )
         )
-        source = yaml.safe_load((ROOT / "tools/deploy/ansible/deploy.yaml").read_text())
+        source = yaml.safe_load((ROOT / "scripts/deploy/ansible/deploy.yaml").read_text())
         app = next(
             p for p in source if p.get("hosts") == "apps" and p.get("serial") == 1
         )
@@ -730,9 +730,9 @@ def test_nginx_failed_smoke_keeps_backup_for_explicit_manual_restore(tmp_path):
     (edge / "candidate.conf").write_text(candidate)
     # 执行真实发布任务中的备份和开始凭据；模拟后续烟测失败。
     # nginx -t / TLS 的真实容器验证由独立用例覆盖，本用例验证人工恢复材料。
-    edge_tasks = yaml.safe_load((ROOT / "tools/deploy/ansible/tasks/edge.yaml").read_text())
+    edge_tasks = yaml.safe_load((ROOT / "scripts/deploy/ansible/tasks/edge.yaml").read_text())
     update_tasks = yaml.safe_load(
-        (ROOT / "tools/deploy/ansible/tasks/update-service.yaml").read_text()
+        (ROOT / "scripts/deploy/ansible/tasks/update-service.yaml").read_text()
     )
     backup = next(t for t in edge_tasks if t.get("register") == "edge_config_backup")
     record = next(

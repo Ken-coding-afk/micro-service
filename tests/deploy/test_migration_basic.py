@@ -34,7 +34,7 @@ import psycopg
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]  # 仓库根
-SCRIPTS_DIR = ROOT / "tools" / "deploy"
+SCRIPTS_DIR = ROOT / "scripts" / "deploy"
 FIXTURES = ROOT / "tests" / "deploy" / "fixtures"
 FLYWAY_DIR = FIXTURES / "flyway"
 ALEMBIC_DIR = FIXTURES / "alembic"

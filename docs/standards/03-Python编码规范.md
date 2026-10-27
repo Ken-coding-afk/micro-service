@@ -52,6 +52,6 @@ uv run --frozen ruff format src tests
 
 不要依靠全局 pip/pytest 或框架 .venv 补齐服务缺少的依赖。锁文件必须与 pyproject 同步，frozen 失败先核对版本来源，不用取消 frozen 掩盖。
 
-生产使用服务 uv.lock 在 Linux 构建阶段校验并冻结安装，SDK/业务非 editable；不要求手工 wheelhouse。dev 工具不进入生产环境。运维脚本采用项目 .local/tools-venv 和固定框架工具锁；未修改的存量脚本不因本规范进行全量格式化。
+生产使用服务 uv.lock 在 Linux 构建阶段校验并冻结安装，SDK/业务非 editable；不要求手工 wheelhouse。dev 工具不进入生产环境。运维脚本采用项目根 .venv 和根 uv.lock；未修改的存量脚本不因本规范进行全量格式化。
 
 目录同步：2026-10-27，D-20261027-07，目录和工具路径按[总体架构](../design/01-总体架构与工程结构设计.md#framework-layout)；命名与编码行为不扩大。

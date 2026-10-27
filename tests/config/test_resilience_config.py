@@ -11,7 +11,7 @@ def test_mixed_example_sources_include_native_routes_and_both_required_json_file
     root = Path(__file__).resolve().parents[2]
     import shutil
 
-    for folder in (root / "template/config/nacos",):
+    for folder in (root / "config/nacos",):
         for path in folder.iterdir():
             shutil.copyfile(path, tmp_path / path.name)
     assert validate_nacos_source(tmp_path) == []

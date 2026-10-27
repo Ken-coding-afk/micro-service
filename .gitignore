@@ -21,7 +21,7 @@ services/identity-service/admin/dist/
 # IDE
 .idea/
 *.iml
-.vscode/
+# 共享 tasks/launch/settings 纳入版本控制；个人配置使用单独工作区。
 
 # 本地环境与秘密(设计 02:秘密不进 Git)
 *.local

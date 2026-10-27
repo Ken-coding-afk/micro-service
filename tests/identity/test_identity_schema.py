@@ -49,7 +49,7 @@ def test_identity_schema_rls_foreign_keys_and_runtime_grants(
     migrated = subprocess.run(
         [
             sys.executable,
-            "tools/deploy/migrate.py",
+            "scripts/deploy/migrate.py",
             "--env-file",
             str(env_file),
             "--resources",

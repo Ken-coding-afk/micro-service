@@ -33,4 +33,4 @@ SDK 在同一个事务中写 Inbox 和执行 handler，提交后才 ack。相同
 
 ## 5. 本地证据
 
-定向入口：`python-sdk/tests/test_messaging.py`、`java-sdk/.../messaging/RabbitEventsTest.java`；需要显式隔离 PG/Rabbit 绑定。覆盖真实事务回滚、发布确认后回写失败、延时重试、并发去重、未知版本/来源隔离、不可路由返回，以及 Java→Python→Java 互通。测试跳过不算通过。服务器集群故障与真实网络分区尚无验收证据。
+定向入口：`sdk/python/tests/test_messaging.py`、`sdk/java/.../messaging/RabbitEventsTest.java`；需要显式隔离 PG/Rabbit 绑定。覆盖真实事务回滚、发布确认后回写失败、延时重试、并发去重、未知版本/来源隔离、不可路由返回，以及 Java→Python→Java 互通。测试跳过不算通过。服务器集群故障与真实网络分区尚无验收证据。

@@ -51,7 +51,7 @@ def test_nacos_mapped_ports_preserve_sdk_offset():
 
 @pytest.mark.skipif(not shutil.which("docker"), reason="需要 Docker Compose 配置解析")
 def test_two_projects_render_disjoint_resources_and_host_ports(tmp_path):
-    compose = Path(__file__).resolve().parents[2] / "template/infra/compose.yaml"
+    compose = Path(__file__).resolve().parents[2] / "infra/compose.yaml"
     rendered = []
     for project, offset in (("sample-a", 0), ("sample-b", 20000)):
         values = valid_values() | {"PROJECT_CODE": project, "APP_ENV": "local"}

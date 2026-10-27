@@ -353,6 +353,39 @@ public final class ClientManagementService {
     return new View(id, value, 0);
   }
 
+  /** 维护入口在目录锁事务内补齐服务客户端；既有策略归管理员，重跑不覆盖或扩权。 */
+  View provision(Definition proposed, String secret) {
+    if (!org.springframework.transaction.support.TransactionSynchronizationManager
+        .isActualTransactionActive()) throw new IllegalStateException("服务接入必须在维护事务内执行");
+    var value = rules.validate(proposed);
+    rules.validateReferences(value, store);
+    var existing = store.byClientId(value.clientId());
+    if (existing != null) {
+      var current = view(existing);
+      if (current.definition().principalType() != value.principalType()
+          || current.definition().publicClient() != value.publicClient()
+          || (!value.publicClient()
+              && !credentials.matches(secret, existing.client().getClientSecret())))
+        throw bootstrapConflict();
+      // 当前策略是权威；重跑不覆盖管理员调整，不按旧摘要恢复或自动扩权。
+      return current;
+    }
+    if (!value.publicClient() && (secret == null || !secret.matches("[A-Za-z0-9_-]{32,64}")))
+      throw bootstrapConflict();
+    UUID id = UUID.randomUUID();
+    String hash = value.publicClient() ? null : credentials.encoder().encode(secret);
+    store.savePair(protocol(value, id.toString(), hash, null), policy(value, 0), null);
+    accounts.audit(
+        null,
+        "SERVICE",
+        null,
+        "identity.service.client.provisioned",
+        id.toString(),
+        UUID.randomUUID().toString(),
+        JSON.writeValueAsString(Map.of("client_id", value.clientId())));
+    return new View(id, value, 0);
+  }
+
   /** 新租户事务已持目录锁；只追加已由 bootstrap 标记的固定租户管理客户端。 */
   public void enrollBootstrapTenant(UUID tenant) {
     if (!org.springframework.transaction.support.TransactionSynchronizationManager

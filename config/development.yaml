@@ -1,0 +1,8 @@
+local:
+  project: micro-service
+  port_offset: 0
+services:
+  sample-java-service:
+    port: 48082
+  sample-python-service:
+    port: 48083

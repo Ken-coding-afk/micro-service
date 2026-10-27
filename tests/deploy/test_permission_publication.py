@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 spec = importlib.util.spec_from_file_location(
-    "sync_permissions", Path(__file__).parents[2] / "tools/deploy/sync_permissions.py"
+    "sync_permissions", Path(__file__).parents[2] / "scripts/deploy/sync_permissions.py"
 )
 publication = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publication)

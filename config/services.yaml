@@ -1,0 +1,48 @@
+services:
+  identity-service:
+    source: local
+    language: java
+    directory: services/identity-service
+    package: com.ken.platform.identity
+    main_class: com.ken.platform.identity.IdentityApplication
+    requires: []
+    resources: infra/resources.yaml
+    migration:
+      tool: flyway
+      path: services/identity-service/src/main/resources/db/migration
+  api-gateway:
+    source: local
+    language: java
+    directory: services/api-gateway
+    package: com.ken.platform.gateway
+    main_class: com.ken.platform.gateway.GatewayApplication
+    requires:
+    - identity-service
+  sample-java-service:
+    source: local
+    language: java
+    directory: services/sample-java-service
+    package: com.example.sample
+    resources: services/sample-java-service/resources.yaml
+    permissions: services/sample-java-service/src/main/resources/permissions.yaml
+    migration:
+      tool: flyway
+      path: services/sample-java-service/src/main/resources/db/migration
+    requires: []
+    peer: sample-python-service
+    main_class: com.example.sample.SampleApplication
+  sample-python-service:
+    source: local
+    language: python
+    directory: services/sample-python-service
+    package: sample_service
+    resources: services/sample-python-service/resources.yaml
+    permissions: services/sample-python-service/src/sample_service/resources/permissions.yaml
+    migration:
+      tool: alembic
+      path: services/sample-python-service/migrations
+    requires: []
+    peer: sample-java-service
+    entry: sample-api
+    debug_module: sample_service.main
+    app_factory: sample_service.main:create_app

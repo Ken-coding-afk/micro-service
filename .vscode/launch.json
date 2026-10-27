@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "service:sample-java-service",
+      "request": "launch",
+      "preLaunchTask": "service:sample-java-service:prepare",
+      "envFile": "${workspaceFolder}/.local/runtime/sample-java-service-ide.env",
+      "type": "java",
+      "mainClass": "com.example.sample.SampleApplication",
+      "projectName": "sample-java-service",
+      "cwd": "${workspaceFolder}/services/sample-java-service",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "service:sample-python-service",
+      "request": "launch",
+      "preLaunchTask": "service:sample-python-service:prepare",
+      "envFile": "${workspaceFolder}/.local/runtime/sample-python-service-ide.env",
+      "type": "debugpy",
+      "module": "sample_service.main",
+      "cwd": "${workspaceFolder}/services/sample-python-service",
+      "python": "${workspaceFolder}/services/sample-python-service/.venv/bin/python",
+      "justMyCode": false,
+      "windows": {
+        "python": "${workspaceFolder}/services/sample-python-service/.venv/Scripts/python.exe"
+      },
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "services:combined",
+      "configurations": [
+        "service:sample-java-service",
+        "service:sample-python-service"
+      ],
+      "stopAll": true
+    }
+  ]
+}

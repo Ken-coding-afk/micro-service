@@ -210,7 +210,7 @@ def test_initialized_migrator_executes_real_flyway_without_manual_grants(
     result = subprocess.run(
         [
             sys.executable,
-            "tools/deploy/migrate.py",
+            "scripts/deploy/migrate.py",
             "--env-file",
             str(env_file),
             "--resources",

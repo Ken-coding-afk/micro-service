@@ -9,14 +9,8 @@ RUN pnpm run verify:build
 
 FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
 WORKDIR /build
-COPY pom.xml ./
-COPY java-sdk/pom.xml java-sdk/
-COPY services/api-gateway/pom.xml services/api-gateway/
-COPY services/identity-service/pom.xml services/identity-service/
-RUN mvn -B -pl :identity-service -am dependency:go-offline -DskipTests
-COPY java-sdk java-sdk
-COPY services/api-gateway services/api-gateway
-COPY services/identity-service services/identity-service
+# 根目录是构建上下文；.dockerignore 排除环境和构建缓存。
+COPY . .
 COPY --from=admin-build /build/services/identity-service/target/generated-resources /build/services/identity-service/target/generated-resources
 RUN mvn -B -pl :identity-service -am package -DskipTests -DskipAdminBuild=true
 

@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import generation  # noqa: E402
 from build import business_dockerfile, copy_inputs  # noqa: E402
+from catalog import project_config
 from common import read_yaml, service_directory, write  # noqa: E402
 from create import create  # noqa: E402
 from local import generated, prepare_environment  # noqa: E402
@@ -28,7 +29,6 @@ def options(root):
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    monkeypatch.setattr(generation, "run", lambda *args, **kwargs: None)
     generation.generate(options(tmp_path))
     return tmp_path
 
@@ -63,22 +63,22 @@ def test_independent_routes_permissions_and_source_dependencies(workspace):
         assert all(p["resource_code"] == name + "-item" for p in value["permissions"])
         assert all(p["oauth_scope"].startswith(name + ".items.") for p in value["permissions"])
     pom = (workspace / "services/equipment-service/pom.xml").read_text()
-    assert "../../vendor/micro-service/pom.xml" in pom
+    assert "../../pom.xml" in pom
     assert (
         workspace
         / "services/equipment-service/src/main/java/com/acme/equipment/SampleApplication.java"
     ).is_file()
     py = (workspace / "services/inspection-service/pyproject.toml").read_text()
-    assert 'path = "../../vendor/micro-service/python-sdk"' in py
+    assert 'path = "../../sdk/python"' in py
     assert 'inspection-service-api = "inspection.main:main"' in py
-    assert not (workspace / "tools/infra/init.py").exists()
-    assert not (workspace / "tools/config/publish.py").exists()
+    assert (workspace / "scripts/infra/init.py").exists()
+    assert (workspace / "scripts/config/publish.py").exists()
     assert 'value="equipment-service"' in (workspace / "web/index.html").read_text(encoding="utf-8")
     assert "${service}/items" in (workspace / "web/sample.js").read_text(encoding="utf-8")
     from common import load_tool
 
     assert (
-        load_tool("tools/config/contract.py").validate_nacos_source(workspace / "config/nacos")
+        load_tool("scripts/config/contract.py").validate_nacos_source(workspace / "config/nacos")
         == []
     )
 
@@ -88,10 +88,7 @@ def test_second_same_language_service_is_not_same_resource(workspace):
     generation.register(workspace, "java", "report-service", "com.acme.report", 49000, None)
     value = read_yaml(workspace / "services/report-service/src/main/resources/permissions.yaml")
     assert value["permissions"][0]["code"] == "report-service-item:read"
-    assert (
-        read_yaml(workspace / "config/development.yaml")["services"]["report-service"]["peer"]
-        is None
-    )
+    assert project_config(workspace)["services"]["report-service"]["peer"] is None
     with pytest.raises(ValueError, match="冲突"):
         generation.register(workspace, "java", "report-service", "com.acme.report", 49000, None)
 
@@ -154,7 +151,7 @@ def test_business_uv_does_not_replace_tools_environment(tmp_path, monkeypatch):
 def test_deployment_lists_new_services_without_local_runtime(workspace):
     generation.service_files(workspace, "python", "scoring-service", "scoring", None)
     generation.register(workspace, "python", "scoring-service", "scoring", 49001, None)
-    compose = read_yaml(workspace / "deploy/business.compose.yaml")
+    compose = read_yaml(workspace / "deploy/generated.services.yaml")
     assert set(compose["services"]) == {
         "equipment-service",
         "inspection-service",
@@ -168,16 +165,13 @@ def test_deployment_lists_new_services_without_local_runtime(workspace):
         assert "SERVICE_BIND_PORT" in " ".join(service["healthcheck"]["test"])
 
 
-def test_external_local_init_rejected_before_container_calls(workspace, monkeypatch):
-    write(
-        workspace / ".local/environment.env",
-        "APP_ENV=local\nPROJECT_CODE=equipment-platform\nPG_MODE=external\nREDIS_MODE=self_hosted\nNACOS_MODE=self_hosted\n",
-    )
+def test_external_local_init_preserves_supplied_environment(workspace, monkeypatch):
+    content = "APP_ENV=local\nPROJECT_CODE=equipment-platform\nPG_MODE=external\nREDIS_MODE=self_hosted\nNACOS_MODE=self_hosted\n"
+    write(workspace / ".local/environment.env", content)
     monkeypatch.setattr("socket.getaddrinfo", lambda *args: [])
-    with pytest.raises(ValueError, match="external"):
-        prepare_environment(
-            workspace, read_yaml(workspace / "config/development.yaml"), "127.0.0.1"
-        )
+    path, host = prepare_environment(workspace, project_config(workspace), "127.0.0.1")
+    assert path.read_text(encoding="utf-8") == content
+    assert host == "127.0.0.1"
 
 
 def test_repeat_init_preserves_explicit_host(workspace, monkeypatch):
@@ -193,14 +187,28 @@ def test_repeat_init_preserves_explicit_host(workspace, monkeypatch):
         prepare_environment(workspace, config, "192.168.1.202")
 
 
-def test_new_service_is_not_silently_bootstrapped(workspace, monkeypatch):
+def test_new_service_selection_does_not_reset_existing_identity(workspace, monkeypatch):
     import local
 
     generation.service_files(workspace, "python", "scoring-service", "scoring", None)
     generation.register(workspace, "python", "scoring-service", "scoring", 49001, None)
-    monkeypatch.setattr(local, "base_images", lambda *args: pytest.fail("must stop before Docker"))
-    with pytest.raises(ValueError, match="新增服务"):
-        local.initialize(workspace, None)
+    captured = {}
+
+    class BeforeRuntime(Exception):
+        pass
+
+    def capture(root, config, host):
+        captured.update(config)
+        raise BeforeRuntime
+
+    monkeypatch.setattr(local, "prepare_environment", capture)
+    with pytest.raises(BeforeRuntime):
+        local.initialize(
+            workspace,
+            argparse.Namespace(services="scoring-service", with_demo=False, dev_host=None),
+        )
+    assert set(captured["services"]) == {"scoring-service"}
+    assert not (workspace / ".local/runtime/identity-bootstrap-secrets/local.json").exists()
 
 
 def test_invalid_config_stops_before_environment_or_docker(workspace, monkeypatch):
@@ -218,7 +226,7 @@ def test_legacy_project_packaging_entry_is_retired():
 
     from common import FRAMEWORK
 
-    assert not (FRAMEWORK / "tools/deploy/package_runtime.py").exists()
+    assert not (FRAMEWORK / "scripts/deploy/package_runtime.py").exists()
 
 
 def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, monkeypatch):
@@ -227,16 +235,22 @@ def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, mo
     import build
     from common import write_yaml
 
-    config = read_yaml(workspace / "config/development.yaml")
+    config = project_config(workspace)
     identity = {"project_commit": "a" * 40, "framework_commit": "b" * 40, "dirty": False}
-    business = read_yaml(workspace / "deploy/business.compose.yaml")
+    business = read_yaml(workspace / "deploy/generated.services.yaml")
     business["volumes"] = {"project-data": {}}
     business["networks"] = {"project-net": {"driver": "bridge"}}
     business["x-project"] = {"owner": "business-team"}
     business["services"]["equipment-service"]["volumes"].append("project-data:/data")
     business["services"]["equipment-service"]["networks"].append("project-net")
-    write_yaml(workspace / "deploy/business.compose.yaml", business)
-    names = ["identity-service", "api-gateway", "nginx", *config["services"]]
+    write_yaml(workspace / "deploy/compose.override.yaml", business)
+    names = [
+        "identity-service",
+        "api-gateway",
+        "nginx",
+        *config["services"],
+        "inspection-service-migration",
+    ]
     images = {name: "registry.invalid/" + name + "@sha256:" + "c" * 64 for name in names}
     write(workspace / ".local/images.json", json.dumps(images))
     write(
@@ -275,82 +289,71 @@ def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, mo
     ]
     assert not (output / ".local").exists()
     assert not (output / "vendor").exists()
-    assert not (output / "services").exists()
-    assert (output / "artifacts/inspection-service-migrations/env.py").is_file()
-    assert (output / "tools/deploy/verify_release.py").is_file()
-    assert all(name in read_yaml(output / "deploy/compose.yaml")["services"] for name in names)
-    bundled = read_yaml(output / "deploy/compose.yaml")
-    assert bundled["volumes"] == business["volumes"]
-    assert bundled["networks"]["project-net"] == business["networks"]["project-net"]
-    assert bundled["x-project"] == business["x-project"]
-    assert "application" in bundled["networks"]
-    assert "project-data:/data" in bundled["services"]["equipment-service"]["volumes"]
-    assert "project-net" in bundled["services"]["equipment-service"]["networks"]
-
-    business["networks"]["application"] = {"external": False}
-    write_yaml(workspace / "deploy/business.compose.yaml", business)
-    args.output = workspace / "dist/conflict"
-    with pytest.raises(ValueError, match="Compose 顶层声明冲突：networks.application"):
-        build.bundle(workspace, args, config, identity)
+    assert not (output / "services/equipment-service/src/main/java").exists()
+    assert not (output / "services/inspection-service/src/inspection/main.py").exists()
+    assert (output / "services/inspection-service/migrations/env.py").is_file()
+    assert (output / "scripts/deploy/verify_release.py").is_file()
+    assert all(
+        name in read_yaml(output / "deploy/compose.yaml")["services"]
+        for name in names
+        if not name.endswith("-migration")
+    )
+    bundled = read_yaml(output / "deploy/compose.override.yaml")
+    assert bundled == business
+    assert "deploy/compose.override.yaml" in release["compose_files"]
+    assert "application" in read_yaml(output / "deploy/compose.yaml")["networks"]
 
 
 @pytest.mark.parametrize("language", ["java", "python"])
 def test_add_service_preserves_existing_compose_settings(workspace, language):
-    import cli
     from common import write_yaml
 
-    path = workspace / "deploy/business.compose.yaml"
-    compose = read_yaml(path)
-    compose["services"]["equipment-service"].update(
-        {
-            "environment": {"BUSINESS_MODE": "project-owned"},
-            "mem_limit": "768m",
-            "volumes": ["project-data:/data"],
-            "labels": {"team": "project-owner"},
-        }
-    )
-    compose["networks"] = {"project-net": {"external": True}}
-    compose["volumes"] = {"project-data": {}}
-    compose["x-project"] = {"owner": "project-team"}
+    path = workspace / "deploy/compose.override.yaml"
+    compose = {
+        "services": {
+            "equipment-service": {
+                "environment": {"BUSINESS_MODE": "project-owned"},
+                "mem_limit": "768m",
+                "volumes": ["project-data:/data"],
+                "labels": {"team": "project-owner"},
+            }
+        },
+        "volumes": {"project-data": {}},
+        "networks": {"project-net": {"external": True}},
+    }
     write_yaml(path, compose)
-    cli.add_service(
+    before = path.read_bytes()
+    generation.service_files(
         workspace,
-        argparse.Namespace(
-            language=language,
-            name="report-service",
-            package="com.acme.report" if language == "java" else "report",
-            port=49100,
-        ),
+        language,
+        "report-service",
+        "com.acme.report" if language == "java" else "report",
+        None,
     )
-    after = read_yaml(path)
-    assert after["services"].pop("report-service")
-    assert after == compose
+    generation.register(
+        workspace,
+        language,
+        "report-service",
+        "com.acme.report" if language == "java" else "report",
+        49100,
+        None,
+    )
+    assert path.read_bytes() == before
+    assert "report-service" in read_yaml(workspace / "deploy/generated.services.yaml")["services"]
 
 
-def test_compose_name_conflict_does_not_change_registration(workspace):
-    import cli
-    from common import write_yaml
-
-    compose_path = workspace / "deploy/business.compose.yaml"
-    compose = read_yaml(compose_path)
-    compose["services"]["scoring-service"] = {"image": "project-owned"}
-    write_yaml(compose_path, compose)
+def test_name_conflict_does_not_change_registration(workspace):
     controlled = [
+        "config/services.yaml",
         "config/development.yaml",
         "config/nacos/api-gateway.yaml",
-        "deploy/business.compose.yaml",
+        "deploy/generated.services.yaml",
         "pom.xml",
     ]
     before = {name: (workspace / name).read_bytes() for name in controlled}
-    with pytest.raises(ValueError, match="Compose 服务已存在"):
-        cli.add_service(
-            workspace,
-            argparse.Namespace(
-                language="python", name="scoring-service", package="scoring", port=49100
-            ),
-        )
+    with pytest.raises(ValueError, match="冲突"):
+        generation.register(workspace, "python", "inspection-service", "inspection", 49100, None)
     assert {name: (workspace / name).read_bytes() for name in controlled} == before
-    assert not (workspace / "services/scoring-service").exists()
 
 
 def test_created_nacos_configuration_only_contains_selected_services(workspace):
@@ -377,6 +380,8 @@ def test_initializer_passes_project_redis_template(workspace, monkeypatch):
     )
     monkeypatch.setattr(local, "run", lambda *a, **k: None)
     monkeypatch.setattr(local, "base_images", lambda *a: {})
+    monkeypatch.setattr(local, "env_values", lambda *a: {})
+    monkeypatch.setattr(local, "build_service", lambda *a, **k: "sha256:" + "a" * 64)
 
     def stop(root, path, *args):
         calls.append((root, path, args))
@@ -388,7 +393,7 @@ def test_initializer_passes_project_redis_template(workspace, monkeypatch):
     assert calls == [
         (
             workspace,
-            "tools/infra/init.py",
+            "scripts/infra/init.py",
             (
                 "--env-file",
                 workspace / ".local/environment.env",
@@ -411,3 +416,141 @@ def test_maven_wrapper_is_published_as_executable():
     )
     assert tracked.split()[0] == "100755"
     assert b"\r\n" not in (FRAMEWORK / "mvnw").read_bytes()
+
+
+def test_initialization_orders_config_identity_catalog_then_business_migration(
+    workspace, monkeypatch
+):
+    from types import SimpleNamespace
+
+    import local
+
+    events = []
+    env_path = workspace / ".local/environment.env"
+    runtime = workspace / ".local/runtime"
+    local.generated(workspace, runtime / "compose.env", "fixture")
+    env = {
+        "APP_ENV": "local",
+        "PROJECT_CODE": "equipment-platform",
+        "PG_MODE": "external",
+        "PUBLIC_ORIGIN": "http://localhost:18280",
+        "IDENTITY_ADMIN_PORT": "18281",
+    }
+    monkeypatch.setattr(local, "prepare_environment", lambda *a: (env_path, "127.0.0.1"))
+    monkeypatch.setattr(local, "env_values", lambda *a: dict(env))
+    monkeypatch.setattr(local, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        local, "base_images", lambda *a: {"identity-service": "identity", "api-gateway": "gateway"}
+    )
+    monkeypatch.setattr(local, "build_service", lambda *a, **k: "sha256:" + "a" * 64)
+    monkeypatch.setattr(
+        local, "tool", lambda root, name, *args: events.append((name, *map(str, args)))
+    )
+    monkeypatch.setattr(
+        local,
+        "migrate",
+        lambda root, env, resources, target, *args, **kw: events.append(("migrate", target)),
+    )
+    monkeypatch.setattr(local, "compose", lambda root, *args: events.append(("compose", *args)))
+
+    def bind(root, config, *args):
+        for name in config["services"]:
+            write(runtime / f"identity-bootstrap-secrets/{name}.password", "fixture")
+
+    monkeypatch.setattr(local, "bind_business", bind)
+    original = local.load_tool
+    monkeypatch.setattr(
+        local,
+        "load_tool",
+        lambda name: (
+            SimpleNamespace(publish=lambda *args: events.append(("permissions",)))
+            if name.endswith("sync_permissions.py")
+            else original(name)
+        ),
+    )
+    local.initialize(
+        workspace, argparse.Namespace(dev_host=None, services="inspection-service", with_demo=False)
+    )
+
+    def index(text):
+        return next(i for i, event in enumerate(events) if text in event)
+
+    assert index("scripts/config/publish.py") < index("identity-db")
+    assert index("identity-db") < index("bootstrap-services-technical") < index("permissions")
+    assert (
+        index("permissions")
+        < index("bootstrap-services-applications")
+        < index("inspection-service-db")
+    )
+    assert not any("equipment-service-db" in event for event in events)
+    assert not any("bootstrap-local" in event for event in events)
+
+
+def test_partial_build_reuses_core_and_rejects_changed_core_inputs(
+    workspace, monkeypatch, tmp_path
+):
+    import json
+
+    import build
+    from common import write_yaml
+
+    write_yaml(
+        workspace / "deploy/release.yaml",
+        {
+            "owner": "test",
+            "approval_reference": "fixture",
+            "compatible_previous_versions": [],
+            "rollback_window_hours": 24,
+        },
+    )
+    fingerprint = build.base_fingerprint(workspace)
+    baseline = workspace / ".local/previous-release.yaml"
+    write_yaml(
+        baseline,
+        {
+            "project": "equipment-platform",
+            "source": {"base_fingerprint": fingerprint},
+            "images": {
+                name: "registry.invalid/" + name + "@sha256:" + "a" * 64
+                for name in ("identity-service", "api-gateway", "nginx")
+            },
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "source_identity",
+        lambda *a, **k: {
+            "base_fingerprint": fingerprint,
+            "project_commit": "a" * 40,
+            "dirty": False,
+        },
+    )
+    calls = []
+    monkeypatch.setattr(build, "run", lambda *a, **k: None)
+    monkeypatch.setattr(build.subprocess, "check_output", lambda *a, **k: "sha256:" + "a" * 64)
+    monkeypatch.setattr(build, "base_images", lambda *a: pytest.fail("局部发布不能重建基础镜像"))
+    monkeypatch.setattr(
+        build,
+        "build_service",
+        lambda root, name, *a, **kw: (
+            calls.append((name, kw.get("migration", False))) or "sha256:" + "b" * 64
+        ),
+    )
+    args = argparse.Namespace(
+        release="1.0",
+        services="inspection-service",
+        base_release=baseline,
+        output=workspace / "dist/one",
+    )
+    build.build(workspace, args)
+    assert calls == [("inspection-service", False), ("inspection-service", True)]
+    assert (
+        json.loads((args.output / "build-record.json").read_text(encoding="utf-8"))["complete"]
+        is False
+    )
+    args.output = workspace / "dist/two"
+    write(workspace / "sdk/java/changed.txt", "changed")
+    assert build.base_fingerprint(workspace) != fingerprint
+    fingerprint = "different"
+    with pytest.raises(ValueError, match="基础源码"):
+        build.build(workspace, args)

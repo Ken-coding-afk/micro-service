@@ -8,15 +8,14 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import build  # noqa: E402
-from common import write  # noqa: E402
+from common import write, write_yaml  # noqa: E402
 
 
 def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_path, monkeypatch):
     root = tmp_path / "project"
-    vendor = root / "vendor/micro-service"
-    vendor.mkdir(parents=True)
+    root.mkdir(parents=True)
     hooks = tmp_path / "empty-hooks"
     hooks.mkdir()
 
@@ -41,12 +40,20 @@ def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_
             "fixture",
         )
 
-    git(vendor, "init", "--initial-branch=main")
-    write(vendor / "uv.lock", "version = 1\n")
-    commit(vendor)
-    git(vendor, "remote", "add", "origin", "https://example.invalid/framework.git")
     git(root, "init", "--initial-branch=main")
     write(root / ".gitignore", ".local/\n")
+    write(root / "uv.lock", "version = 1\n")
+    for name in ("pom.xml", "mvnw", "mvnw.cmd", ".dockerignore"):
+        write(root / name, "fixture")
+    write_yaml(
+        root / "config/services.yaml",
+        {
+            "services": {
+                name: {"source": "local", "language": "java", "directory": "services/" + name}
+                for name in ("identity-service", "api-gateway")
+            }
+        },
+    )
     policy = root / "deploy/release.yaml"
     write(policy, "owner: release-owner\n")
     commit(root)
@@ -66,7 +73,7 @@ def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_
     monkeypatch.setattr(build, "run", boundary)
     source = build.source_identity(root, strict=True)
     assert source["dirty"] is False
-    assert len(calls) == 2
+    assert len(calls) == 1
     images = {
         name: "registry.invalid/" + name + "@sha256:" + "c" * 64
         for name in ("identity-service", "api-gateway", "nginx")
@@ -84,7 +91,7 @@ def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_
         build.bundle(root, args, config, current)
 
     write(policy, "owner: changed-owner\n")
-    with pytest.raises(ValueError, match="构建输入已提交"):
+    with pytest.raises(ValueError, match="源码已提交且干净"):
         build.source_identity(root, strict=True)
     commit(root)
     changed = build.source_identity(root, strict=True)

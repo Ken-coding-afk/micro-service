@@ -219,6 +219,8 @@ OAuth scope 决定“这个客户端获准代表用户做哪些事”；角色�
 
 公开来源 PUBLIC_ORIGIN 固定决定 issuer、浏览器授权/回调/退出链接；内部来源 IDENTITY_INTERNAL_ORIGIN 决定 BFF、资源服务与机器客户端连接身份服务的地址。二者可不同，但验证 issuer 时仍使用公开固定值，不因为走内网而接受另一个 issuer。
 
+开发 Swagger 使用标准公开客户端 Authorization Code + PKCE/S256，无 client_secret、无 refresh token，非 first-party 并要求同意。仅 local 登记，精确服务回调、最小 audience/scope 和明确租户集合；初始化不自动给普通用户角色扩权。只对 local Swagger 准确 origins 的 token 端点启用 CORS，test/prod 不包含开发名单。具体生成和使用见[接口调试合同](11-源码脚手架交付与开发体验设计.md#openapi)，不从 BFF 导出 token。
+
 仅 APP_ENV=local 且 PUBLIC_ORIGIN 的主机严格为 localhost、127.0.0.1 或 ::1 时，允许明确配置的 HTTP 开发入口和非 Secure Cookie；HttpOnly、SameSite=Lax、CSRF、state/PKCE/nonce 校验仍启用。非 loopback HTTP 直接拒绝，不能把 local profile 部署到测试/生产。测试/生产统一 HTTPS 和受信任内部 TLS。容器里的 localhost 不是宿主或另一服务，不能把 discovery 返回的外部 loopback token URL不加处理地用于容器服务端连接。BFF 使用显式内部 token/UserInfo/JWKS 地址，浏览器跳转仍走公开来源；这组差异必须经过真实登录测试。
 
 Nginx/Gateway 仅信任登记的代理链，固定 Host/Proto 与回调不接受外部任意覆盖。OAuth token/revoke 等标准端点使用协议本身的客户端认证，不统一套要求已有用户会话的 BFF 过滤器。需要 CSRF 的浏览器写操作与校验 state/nonce 的回调分别实施相应保护。

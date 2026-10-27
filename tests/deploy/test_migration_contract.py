@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location(
-    "migration_contract", ROOT / "tools/deploy/migrate.py"
+    "migration_contract", ROOT / "scripts/deploy/migrate.py"
 )
 migration = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = migration
@@ -45,21 +45,72 @@ def test_failed_run_retains_deployed_revision_hashes(tmp_path, monkeypatch):
     }
     failed = migration.new_run_state(cfg, previous)
     failed["status"] = "failed"
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(migration, "open_short_connection", lambda cfg: nullcontext(None))
+    monkeypatch.setattr(migration, "read_remote_facts", lambda *args: {"version": "r1"})
+    monkeypatch.setattr(migration, "applied_revisions", lambda *args: {"r1"})
     monkeypatch.setattr(
         migration,
         "scan_alembic_versions",
         lambda cfg: {"r1": {"sha256": "changed", "down": None}},
     )
-    monkeypatch.setattr(
-        migration, "run_alembic", lambda *args: pytest.fail("篡改后不应运行工具")
-    )
+    monkeypatch.setattr(migration, "run_alembic", lambda *args: pytest.fail("篡改后不应运行工具"))
     assert migration.step_validate_alembic(cfg, failed)[0] is False
+
     monkeypatch.setattr(
         migration,
         "scan_alembic_versions",
         lambda cfg: {"r2": {"sha256": "new", "down": None}},
     )
     assert migration.step_validate_alembic(cfg, failed)[0] is False
+
+
+def test_nonempty_database_requires_archive_and_ignores_unapplied_hashes(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+
+    cfg = configuration(tmp_path)
+    monkeypatch.setattr(migration, "open_short_connection", lambda cfg: nullcontext(None))
+    monkeypatch.setattr(migration, "read_remote_facts", lambda *args: {"version": "r1"})
+    monkeypatch.setattr(migration, "applied_revisions", lambda *args: {"r1"})
+    monkeypatch.setattr(
+        migration,
+        "scan_alembic_versions",
+        lambda cfg: {"r1": {"down": None, "sha256": "old"}, "r2": {"down": "r1", "sha256": "new"}},
+    )
+    monkeypatch.setattr(migration, "run_alembic", lambda *args: (True, "head"))
+    assert migration.step_validate_alembic(cfg, None)[0] is False
+    assert (
+        migration.step_validate_alembic(
+            cfg, {"facts": {"revision_shas": {"r1": "old", "r2": "not-applied"}}}
+        )[0]
+        is True
+    )
+
+
+def test_archive_moves_between_machines_but_cannot_cross_databases(tmp_path):
+    cfg = configuration(tmp_path)
+    state = migration.new_run_state(cfg, None)
+    state.update(status=migration.STATUS_DONE, facts={"revision_shas": {"r1": "old"}})
+    migration.save_state(cfg, state)
+    archive = next((cfg.state_dir / "history").glob("*.json"))
+    cfg.state_dir = tmp_path / "new-machine"
+    cfg.previous_state = archive
+    assert migration.load_state(cfg)["facts"] == state["facts"]
+    cfg.db_name = "different_database"
+    with pytest.raises(migration.UsageError, match="不属于"):
+        migration.load_state(cfg)
+
+
+def test_alembic_uses_fixed_image_without_runtime_install(tmp_path, monkeypatch):
+    cfg = configuration(tmp_path)
+    cfg.migration_image = "registry.invalid/migrate@sha256:" + "a" * 64
+    calls = []
+    monkeypatch.setattr(migration, "docker_run", lambda *args: calls.append(args) or (0, "ok"))
+    assert migration.run_alembic(cfg, ["upgrade", "head"])[0]
+    assert calls[0][1] == cfg.migration_image
+    assert calls[0][2] == ["upgrade", "head"]
+    assert "pip install" not in repr(calls)
 
 
 def test_timeout_command_and_exception_do_not_contain_password(tmp_path, monkeypatch):
@@ -123,9 +174,7 @@ def test_official_graph_reads_typed_revision_and_merge_parents(tmp_path):
     assert all(len(value["sha256"]) == 64 for value in graph.values())
 
 
-@pytest.mark.parametrize(
-    "problem", ["two_heads", "missing_parent", "cycle", "duplicate"]
-)
+@pytest.mark.parametrize("problem", ["two_heads", "missing_parent", "cycle", "duplicate"])
 def test_invalid_version_graph_stops_before_migration(tmp_path, problem):
     revision_file(tmp_path, "first.py", "r1", "r2" if problem == "cycle" else None)
     if problem == "two_heads":

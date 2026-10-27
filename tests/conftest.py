@@ -20,7 +20,7 @@ import pytest
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FRAMEWORK_ROOT))
-sys.path.insert(0, str(FRAMEWORK_ROOT / "tools/config"))
+sys.path.insert(0, str(FRAMEWORK_ROOT / "scripts/config"))
 import contract
 
 
@@ -32,7 +32,7 @@ def _compose_running() -> bool:
             "--env-file",
             ".local/environment.env",
             "-f",
-            "template/infra/compose.yaml",
+            "infra/compose.yaml",
             "ps",
             "--format",
             "json",
@@ -66,7 +66,7 @@ def local_env() -> dict[str, str]:
     result = subprocess.run(
         [
             sys.executable,
-            "tools/infra/init.py",
+            "scripts/infra/init.py",
             "--env-file",
             str(env_file),
             "--phase",
@@ -86,7 +86,7 @@ def local_env() -> dict[str, str]:
 
     if not _compose_running():
         result = subprocess.run(
-            [sys.executable, "tools/infra/up.py", "--env-file", str(env_file)],
+            [sys.executable, "scripts/infra/up.py", "--env-file", str(env_file)],
             cwd=FRAMEWORK_ROOT,
             capture_output=True,
             text=True,
@@ -149,12 +149,12 @@ def isolated_env_factory(local_env, tmp_path):
 
 @pytest.fixture()
 def run_init():
-    """执行 tools/infra/init.py 的辅助函数。"""
+    """执行 scripts/infra/init.py 的辅助函数。"""
 
     def _run(env_file: Path, resources: Path | None = None):
         cmd = [
             sys.executable,
-            "tools/infra/init.py",
+            "scripts/infra/init.py",
             "--env-file",
             str(env_file),
             "--phase",

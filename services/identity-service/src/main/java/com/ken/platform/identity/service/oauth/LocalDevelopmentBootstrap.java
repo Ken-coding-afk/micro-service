@@ -79,7 +79,8 @@ public final class LocalDevelopmentBootstrap {
         || !input.project().matches("[a-z][a-z0-9-]{0,29}")
         || !input.database().equals(input.project().replace('-', '_') + "_local_identity")
         || input.services() == null
-        || input.services().size() != 2
+        || input.services().isEmpty()
+        || input.services().size() > 100
         || input.definition() == null
         || !input.definition().matches("[a-f0-9]{64}")
         || input.passwords() == null
@@ -129,26 +130,16 @@ public final class LocalDevelopmentBootstrap {
               var scopes = new HashSet<>(Set.of("profile"));
               var audiences = new HashSet<>(Set.of("identity-service"));
               for (var service : input.services()) {
-                if (!store.findAudienceBindings(service.name(), service.name()).isEmpty())
-                  throw conflict();
-                store.registerAudience(service.name(), service.name());
+                var bindings = store.findAudienceBindings(service.name(), service.name());
+                if (bindings.size() != 1
+                    || !bindings.getFirst().service().equals(service.name())
+                    || !bindings.getFirst().audience().equals(service.name())
+                    || !bindings.getFirst().status().equals("ACTIVE")) throw conflict();
                 audiences.add(service.name());
-                scopes.add(service.name() + ".items.read");
-                scopes.add(service.name() + ".items.write");
-                Long count =
-                    jdbc.queryForObject(
-                        """
-            SELECT count(*) FROM sys_permission WHERE owner_service=? AND status='ACTIVE'
-            AND principal_type='TENANT' AND ((code=? AND oauth_scope=? AND 'TENANT'=ANY(supported_data_scopes))
-            OR (code=? AND oauth_scope=? AND cardinality(supported_data_scopes)=0))
-            """,
-                        Long.class,
-                        service.name(),
-                        service.name() + "-item:read",
-                        service.name() + ".items.read",
-                        service.name() + "-item:create",
-                        service.name() + ".items.write");
-                if (count == null || count != 2) throw invalid();
+                var registeredScopes =
+                    store.businessScopes(PrincipalType.USER, Set.of(service.name()));
+                if (registeredScopes.isEmpty()) throw invalid();
+                scopes.addAll(registeredScopes);
                 for (String kind : List.of("resource", "gateway")) {
                   String secret =
                       kind.equals("resource") ? service.resourceSecret() : service.gatewaySecret();
@@ -186,13 +177,15 @@ public final class LocalDevelopmentBootstrap {
                     tenant);
                 for (var service : input.services()) {
                   jdbc.update(
-                      "INSERT INTO sys_role_permission(tenant_id,role_id,permission_code,data_scope) VALUES(?,?,?,'TENANT'),(?,?,?,NULL)",
+                      """
+                      INSERT INTO sys_role_permission(tenant_id,role_id,permission_code,data_scope)
+                      SELECT ?,?,code,CASE WHEN 'TENANT'=ANY(supported_data_scopes) THEN 'TENANT' ELSE NULL END
+                      FROM sys_permission WHERE owner_service=? AND status='ACTIVE' AND principal_type='TENANT'
+                      AND (cardinality(supported_data_scopes)=0 OR 'TENANT'=ANY(supported_data_scopes))
+                      """,
                       tenant,
                       writerRole,
-                      service.name() + "-item:read",
-                      tenant,
-                      writerRole,
-                      service.name() + "-item:create");
+                      service.name());
                 }
                 for (String user : List.of("admin", "writer", "denied")) {
                   UUID id = UUID.randomUUID();
@@ -243,8 +236,7 @@ public final class LocalDevelopmentBootstrap {
       Set<String> redirects,
       Set<String> logouts,
       String secret) {
-    clients.initialize(
-        "LOCAL:" + id,
+    clients.provision(
         new ClientPolicyRules.Definition(
             id,
             id,
@@ -258,8 +250,7 @@ public final class LocalDevelopmentBootstrap {
             false,
             true,
             Status.ACTIVE),
-        secret,
-        passwords.encoder().encode(secret));
+        secret);
   }
 
   private static void requireSecret(String value) {

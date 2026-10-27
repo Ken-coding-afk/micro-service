@@ -1,0 +1,167 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "project:init",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/init.py",
+        "--env",
+        "local",
+        "--services",
+        "all"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "project:status",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/compose.py",
+        "ps"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "project:logs",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/compose.py",
+        "logs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "project:stop",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/compose.py",
+        "stop"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "service:sample-java-service:prepare",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/dev.py",
+        "sample-java-service",
+        "--prepare-only",
+        "--tenant-code",
+        "${input:swaggerTenant}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "service:sample-java-service:run",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/dev.py",
+        "sample-java-service"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "service:sample-python-service:prepare",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/dev.py",
+        "sample-python-service",
+        "--prepare-only",
+        "--tenant-code",
+        "${input:swaggerTenant}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "service:sample-python-service:run",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/dev.py",
+        "sample-python-service"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "service:sample-python-service:reload",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "python",
+        "scripts/dev.py",
+        "sample-python-service",
+        "--reload"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "swaggerTenant",
+      "type": "promptString",
+      "description": "Swagger 租户编码（不用 Swagger 可留空）",
+      "default": ""
+    }
+  ]
+}

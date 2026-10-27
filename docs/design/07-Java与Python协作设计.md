@@ -21,19 +21,11 @@
 
 ## 1. 服务职责和公共包范围
 
-项目根 POM 仅聚合 `vendor/micro-service` 和本项目 Java 服务。框架自身 POM 继续聚合三个核心模块；项目不能再重复聚合 java-sdk，避免 reactor 重复模块。
+项目根 POM 聚合 sdk/java、identity-service、api-gateway 及已登记 Java 业务。服务与 SDK 的 parent relativePath 均为 ../../pom.xml；包/artifact 标识不因目录整理变化。项目根 Maven wrapper 执行 `-pl :equipment-service -am package`，无需预装私有 SDK JAR。IDE 导入根 POM；F5 直接运行源码，scripts/dev.py 可编译后启动，停止只处理自己创建的进程。
 
-业务 POM 继承固定框架父版本，`relativePath` 指向 `../../vendor/micro-service/pom.xml`，java-sdk 使用父 POM 的依赖管理。例：在项目根通过 Maven wrapper 执行 `-pl :equipment-service -am package`，只构建该服务及必要父/基础库，不要求本地已有 java-sdk JAR。wrapper 使用 vendor 内同版本入口，不为每个项目维护第二份 wrapper。
+Python 每服务拥有 pyproject.toml、uv.lock 和 .venv；开发 SDK 以 ../../sdk/python、editable=true 引用。根 uv 环境仅用于 scripts，不进入业务 workspace。初始 Python 锁在首次依赖准备生成，后续 frozen sync；新增 submodule 服务的锁在入库前同构目录生成，接入不重写子仓锁。具体步骤见[新增服务](11-源码脚手架交付与开发体验设计.md#service-submodules)。
 
-IDE 导入项目根 POM，直接调试业务启动类并附带生成的运行绑定；使用 `manage.py dev` 时复用已有 dev.py 校验环境和凭据，再构建必要依赖并启动。Ctrl+C 只结束本次进程；不按端口号杀死其他项目进程。Java 与 Python 通信仍走 SDK/HTTP，不能依赖对方源码包。
-
-### Python 源码与环境
-
-采用 **uv 本地路径依赖**，不把所有服务放进同一 uv workspace。原因：算法服务第三方依赖较重，项目内各服务仍需独立锁定和发布；不复制 vlpykernel 的全局 uv.lock 耦合。
-
-每个 Python 服务保留 `pyproject.toml`、`uv.lock` 和自己的 `.venv`；开发时 SDK 指向 `../../vendor/micro-service/python-sdk`，`editable = true`。SDK 版本约束与所引用源码的 metadata 必须一致。创建/添加服务时按当前固定源码解析并生成锁文件；后续安装执行 `uv sync --frozen`，不能每次启动隐式重锁。`uv lock` 失败时项目创建不宣称完成；保留未完成目录供排错。
-
-框架工具环境与业务环境分开：工具使用固定源码里的 pyproject.toml 和 uv.lock，虚拟环境落到项目 `.local/tools-venv`，不修改 vendor 的锁文件。版本引用更新后重新同步工具环境。Python IDE 选择对应服务解释器；当前生成的 launch.json 只提供 Java 附加配置；Java 不进入 uv 成员列表。
+双语 F5/compound、解释器选择及 Windows 事件循环见[调试合同](11-源码脚手架交付与开发体验设计.md#vscode)。代码分仓与 SDK 目录分组不改变运行时服务发现、token audience、scope 和租户校验；调用仍走 HTTP，不共享业务实体。类型化客户端与跨语言契约检查是独立已知缺口，本次 OpenAPI 只提供文档与调试。
 
 增加第三方 Python 依赖只修改该服务的 pyproject/lock，其他项目和兄弟服务的锁文件不变化。生产构建通过锁文件安装依赖并将 SDK/业务转为非 editable 安装；不把开发期的源码挂载带到生产。
 
@@ -230,7 +222,7 @@ RabbitMQ 的 publisher confirm 和 consumer ack 是两个独立确认，只分�
 
 ## 7. 独立项目示例
 
-Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，生成时引用固定 vendor 源码。新项目默认同时有两语言服务；明确不需要某个服务时连同配置与资源声明移除。示例实现一种普通资源的创建/查询及 SELF/TENANT 检查，权限由服务制品同步到同一个通用管理页。
+Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，生成时引用项目内 sdk 源码。新项目默认同时有两语言服务；明确不需要某个服务时连同配置与资源声明移除。示例实现一种普通资源的创建/查询及 SELF/TENANT 检查，权限由服务制品同步到同一个通用管理页。
 
 验收先单语言独立启动、登录、两租户隔离，再验证 Java→Python 与 Python→Java HTTP。启用消息才安装 mq 适配与 RabbitMQ，另验证发送确认、重复投递、提交后 ack 与未知版本隔离；不阻塞纯 HTTP 示例。
 

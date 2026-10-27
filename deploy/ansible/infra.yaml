@@ -1,0 +1,23 @@
+- ansible.builtin.import_playbook: controller-start.yaml
+- name: 启动明确选中的自建组件
+  hosts: infra
+  serial: 1
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - ansible.builtin.include_tasks: tasks/preflight.yaml
+      vars:
+        release_phase: infra
+    - ansible.builtin.include_tasks: tasks/network.yaml
+    - ansible.builtin.assert:
+        that:
+          - infra_services | length > 0
+          - infra_services | difference(['postgres','redis','nacos','rabbitmq']) | length == 0
+          - infrastructure_maintenance_approved | default(false) | bool
+    - name: 使用现有固定组件入口，不更新应用
+      ansible.builtin.command:
+        argv: "{{ [tools_python, project_root + '/scripts/infra/up.py', '--env-file', environment_file, '--compose-file', project_root + '/infra/compose.yaml'] + (infra_services | map('regex_replace', '^', '--service=') | list) }}"
+      no_log: true
+      changed_when: true
+    - ansible.builtin.include_tasks: tasks/finish.yaml
+- ansible.builtin.import_playbook: controller-finish.yaml

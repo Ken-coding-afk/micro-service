@@ -20,13 +20,15 @@
   <description>Ken 微服务框架：版本与构建约束父 POM，同时聚合三个 Java 核心模块</description>
 
   <modules>
-    <module>java-sdk</module>
+    <module>sdk/java</module>
     <module>services/identity-service</module>
     <module>services/api-gateway</module>
+    <module>services/sample-java-service</module>
   </modules>
 
   <properties>
     <java.version>21</java.version>
+    <springdoc.version>3.0.3</springdoc.version>
     <platform.version>1.0.0-rc.3</platform.version>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -38,6 +40,7 @@
 
   <dependencyManagement>
     <dependencies>
+      <dependency><groupId>org.springdoc</groupId><artifactId>springdoc-openapi-starter-webmvc-ui</artifactId><version>${springdoc.version}</version></dependency>
       <dependency>
         <groupId>org.springframework.cloud</groupId>
         <artifactId>spring-cloud-dependencies</artifactId>

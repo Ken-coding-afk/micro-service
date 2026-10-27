@@ -1,0 +1,9 @@
+# 复制为 deploy/release.yaml，填写后与源码一起提交。只填发布意图。
+# id、项目、镜像、文件摘要、迁移清单、源码来源由 build/package 产生。
+environment: test
+migration_mode: compatible  # 破坏性 SQL 改为 maintenance，先停止所有相关流量和写入者。
+compatible_schema_from: []
+rollback_window_hours: 24  # 项目负责人确认的示例窗口。
+compatible_previous_versions: []
+owner: replace-with-release-owner
+approval_reference: replace-with-confirmation-record

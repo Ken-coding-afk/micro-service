@@ -1,30 +1,50 @@
-# Java / Python 微服务框架
+# Java / Python 微服务脚手架
 
-为独立业务项目提供 identity-service、api-gateway、java-sdk 和 python-sdk。每租户独立账号，Spring OAuth2/OIDC、统一角色权限、Nacos、PostgreSQL RLS、Sentinel 和 Python 并发保护；业务功能由项目实现。
+从一份可运行的混合语言项目创建自己的项目。公共 SDK、身份服务、网关及运维脚本直接随项目源码交付；初始两个业务归主仓，后续独立服务以固定 Git submodule 接入。
 
-当前改造采用固定源码工作区：新项目自己的 services 同时放 Java/Python，vendor/micro-service 固定框架提交。管理页随身份服务提供；不要求私有 Maven/PyPI 仓库、手工安装 JAR/wheel 或复制工具源码。
+**当前处于源码脚手架改造实施阶段，Docker 验收暂停。** 新目录和使用流程的验证结果以[当前计划](docs/plans/2026-10-27-源码微服务脚手架改造-plan.md)为准；历史运行结果不证明本次改造已通过。
 
-## 目录
-
-- `java-sdk/`、`python-sdk/`：两种语言的接入库。
-- `services/`：identity-service 与 api-gateway。
-- `template/`：Java/Python 混合项目骨架、配置和部署声明。
-- `tools/`：创建、开发、构建与运维工具，由根 manage.py 调用。
-- `tests/`：工具测试、集成测试和验收夹具。
-- `docs/`：设计、指南、规范与实施计划。
-
-## 创建和使用
-
-从包含创建器的已发布标签/提交检出本仓库：
-
-```powershell
-python manage.py create --output ../equipment-platform --ref <固定标签或提交> --project equipment-platform --java-service equipment-service --java-package com.acme.equipment --python-service inspection-service --python-package inspection
+```text
+sdk/java/                   Java 公共接入代码
+sdk/python/                 Python 公共接入代码
+services/
+  identity-service/         账号、租户、权限、OAuth2/OIDC、身份管理页
+  api-gateway/              入口路由、BFF、流量保护
+  sample-java-service/      唯一 Java 样例源码
+  sample-python-service/    唯一 Python 样例源码
+web/                        业务前端样例
+config/                     服务登记、开发端口、环境样例、Nacos 配置
+infra/                      第三方组件和资源声明
+deploy/                     应用 Compose、Nginx、Ansible
+scripts/                    创建、开发、构建、迁移和接入入口
+tests/                      跨模块定向测试
+docs/                       设计、指南、规范及实施计划
+pom.xml                     Java reactor
+pyproject.toml + uv.lock     运维脚本工具环境
 ```
 
-进入生成项目，先阅读 README，提交项目文件和 gitlink，再执行 init --local；两个终端用 dev 分别启动业务。创建器不会提交、推送或部署。详见[接入指南](docs/guides/01-新项目接入指南.md)、[开发与升级](docs/guides/04-新项目开发与规范升级指南.md)。
+没有第二份 template。新项目从 services 样例生成并改名，不留下原 sample 服务；业务源码、配置和部署文件分别位于新项目对应根目录。
 
-## 当前边界
+## 创建新项目
 
-本轮源码工作区仍在按[实施计划](docs/plans/2026-10-27-源码工作区与新项目接入改造-plan.md)验证。历史制品候选的验收不能算作新路径已通过；真实双机、外部提供方、生产 ACME、容量与生产恢复仍未验证。没有对外推送本轮镜像或源码。
+准备 Git、Python 3.12、uv、JDK 21；运行验收恢复后才使用 Docker Engine / Compose。先在脚手架根安装工具依赖，再从**包含本次改造的固定提交**生成项目。未提交的工作树不会被 --ref 导出。
 
-权威设计、指南与编码规范分别维护，入口见[文档导航](docs/01-文档导航.md)。协作规则见[AGENTS.md](AGENTS.md)、[CLAUDE.md](CLAUDE.md)。完成的历史计划保留原证据，不追改；最新设计基线 D-20261027-08。
+```bash
+uv sync --frozen
+uv run --frozen python scripts/create.py --ref <固定提交> --output ../equipment-platform --project equipment-platform --java-service equipment-service --java-package com.acme.equipment --python-service inspection-service --python-package inspection
+```
+
+创建本身不启动容器、不创建远程仓库、不提交或推送。进入新项目后按照其 README 准备业务锁、初始化环境、登录授权和调试。生成项目不依赖此仓库的磁盘位置，也不需要私有 Maven/PyPI 仓库。
+
+维护仓库样例也使用根 config/infra/deploy。样例中的业务逻辑仅供接入参考，身份服务不承载算法或聊天业务。
+
+## 使用和维护
+
+- [新项目接入](docs/guides/01-新项目接入指南.md)：创建、依赖、首次登录、新增服务。
+- [开发调试](docs/guides/02-开发调试指南.md)：VS Code、运行绑定和排错。
+- [开发与升级](docs/guides/04-新项目开发与规范升级指南.md)：SQL、构建、部署和升级。
+- [编码规范](docs/standards/01-项目编码规范.md)：项目、Java、Python 规范。
+- [脚本职责](scripts/README.md)与[部署操作](deploy/ansible/README.md)。
+- [文档导航](docs/01-文档导航.md)：权威设计与历史计划分开维护。
+
+后续新增服务由兼容版本脚手架的 scripts/create_service.py 创建独立源码，再由项目 scripts/add_service.py 接入固定提交。SDK 和基础服务升级以审阅后的源码补丁合并，不自动覆盖项目定制。

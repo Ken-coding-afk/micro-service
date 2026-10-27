@@ -15,7 +15,7 @@ import httpx
 import psycopg
 
 ROOT = Path.cwd()
-sys.path.insert(0, str(ROOT / "tools/config"))
+sys.path.insert(0, str(ROOT / "scripts/config"))
 from contract import parse_env_file
 
 

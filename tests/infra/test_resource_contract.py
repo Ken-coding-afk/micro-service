@@ -21,8 +21,8 @@ def load_module(name, path):
     return module
 
 
-init = load_module("resource_init_contract", "tools/infra/init.py")
-up = load_module("infra_up_contract", "tools/infra/up.py")
+init = load_module("resource_init_contract", "scripts/infra/init.py")
+up = load_module("infra_up_contract", "scripts/infra/up.py")
 
 
 def declaration(rid="namespace", dependencies=None):
@@ -84,7 +84,7 @@ def test_prepare_existing_example_fills_placeholders_without_rotating(
     tmp_path, monkeypatch
 ):
     path = tmp_path / "environment.env"
-    example = ROOT / "template/config/environments/local.env.example"
+    example = ROOT / "config/environments/local.env.example"
     path.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setattr(
         init.subprocess, "run", Mock(return_value=argparse.Namespace(returncode=0))
@@ -171,7 +171,7 @@ def test_rabbit_permission_failure_not_reported_as_success(tmp_path, monkeypatch
 def test_project_redis_template_used_once_and_runtime_preserved(tmp_path, monkeypatch):
     path = tmp_path / "environment.env"
     path.write_text(
-        (ROOT / "template/config/environments/local.env.example").read_text(encoding="utf-8"),
+        (ROOT / "config/environments/local.env.example").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     project_template = tmp_path / "infra/redis/redis.conf"
@@ -200,7 +200,7 @@ def test_project_redis_template_used_once_and_runtime_preserved(tmp_path, monkey
 def test_missing_explicit_redis_template_never_falls_back(tmp_path, monkeypatch):
     path = tmp_path / "environment.env"
     path.write_text(
-        (ROOT / "template/config/environments/local.env.example").read_text(encoding="utf-8"),
+        (ROOT / "config/environments/local.env.example").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     before = path.read_bytes()

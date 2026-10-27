@@ -7,7 +7,7 @@
 
 业务服务采用一个独立 POM/部署单元。启动类放自身根包；controller 转换 HTTP，controller/dto 保存接口类型；service 处理用例；dal 保存 JDBC Repository；client 封装远端访问。使用 MyBatis/ORM 时再按需增加 mapper/dataobject，不强制迁移持久化技术。简单只读业务投影可放 model，并与持久化实体区别；允许 Service/Repository 共用该明确字段集合，禁止反向依赖 controller。SQL 迁移在 src/main/resources/db/migration，权限清单在 src/main/resources/permissions.yaml。
 
-框架 java-sdk 按能力组织，身份服务按身份领域组织，网关没有业务 DAL。本次不要求已有框架服务整体重排。模块之间只通过发布的公共接口调用，业务构建引用固定 vendor 父 POM/java-sdk；禁止引用机器上项目之外的框架 checkout 或内部私有类。
+框架 java-sdk 按能力组织，身份服务按身份领域组织，网关没有业务 DAL。本次不要求已有框架服务整体重排。模块之间只通过发布的公共接口调用，业务构建引用项目父 POM/sdk/java；禁止引用机器上项目之外的框架 checkout 或内部私有类。
 
 ## 2. 命名、注入与类型
 
@@ -37,17 +37,17 @@ Servlet 用例可在既有请求预算内等待受控客户端；不要另开无
 
 JDK 21；继承固定 platform-parent。Spotless 3.0.0 + google-java-format 1.29.0 是现有格式基线，validate 已执行检查；不用人工缩进或另加格式检查器对抗它。
 
-以下从独立项目根执行；Linux 用 ./vendor/micro-service/mvnw，Windows 用 ./vendor/micro-service/mvnw.cmd：
+以下从独立项目根执行；Linux 用 ./mvnw，Windows 用 ./mvnw.cmd：
 
 ```powershell
 # 只读格式检查
-./vendor/micro-service/mvnw.cmd -f pom.xml -pl :equipment-service -am spotless:check
+./mvnw.cmd -f pom.xml -pl :equipment-service -am spotless:check
 # 显式修复格式，会修改文件
-./vendor/micro-service/mvnw.cmd -f pom.xml -pl :equipment-service -am spotless:apply
+./mvnw.cmd -f pom.xml -pl :equipment-service -am spotless:apply
 # 只运行本次示例相关测试
-./vendor/micro-service/mvnw.cmd -f pom.xml -pl :equipment-service -am -Dtest=BusinessSettingsTest,ItemServiceTest,ItemControllerTest -Dsurefire.failIfNoSpecifiedTests=false test
+./mvnw.cmd -f pom.xml -pl :equipment-service -am -Dtest=BusinessSettingsTest,ItemServiceTest,ItemControllerTest -Dsurefire.failIfNoSpecifiedTests=false test
 # 已测试后构建干净制品；此命令本身不证明测试通过
-./vendor/micro-service/mvnw.cmd -f pom.xml -pl :equipment-service -am clean package -DskipTests
+./mvnw.cmd -f pom.xml -pl :equipment-service -am clean package -DskipTests
 ```
 
 业务服务按实际修改替换测试过滤器，不直接照抄其他项目所有用例。用例测试可以注入受控依赖；输入、响应和异常测试必须断言真实行为，不只断言某方法被调用。SQL/RLS 改动另用真实 PG；不以 mock 宣称跨租户隔离成功。

@@ -1,0 +1,2 @@
+# 项目自有覆盖；与 compose.yaml / generated.services.yaml 合并使用。
+services: {}

@@ -5,7 +5,7 @@ services:
       - "127.0.0.1:${RESILIENCE_GATEWAY_A_PORT:-19092}:8080"
   gateway-peer:
     extends:
-      file: ../../../template/deploy/compose.yaml
+      file: ../../../deploy/compose.yaml
       service: api-gateway
     environment:
       SERVICE_ADVERTISE_HOST: gateway-peer

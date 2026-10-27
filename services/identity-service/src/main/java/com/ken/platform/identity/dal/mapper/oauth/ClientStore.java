@@ -64,6 +64,12 @@ public class ClientStore {
     return read(SELECT + " WHERE c.client_id=?", clientId);
   }
 
+  public java.util.List<String> localSwaggerRedirects() {
+    return jdbc.queryForList(
+        "SELECT c.redirect_uris FROM oauth2_registered_client c JOIN sys_client_policy p ON p.registered_client_id=c.id WHERE c.client_id LIKE '%-swagger' AND c.client_authentication_methods='none' AND p.principal_type='USER' AND p.status='ACTIVE'",
+        String.class);
+  }
+
   public java.util.List<String> pageIds(String query, int offset, int limit) {
     return jdbc.queryForList(
         "SELECT id FROM oauth2_registered_client WHERE ?='' OR position(lower(?) in lower(client_id || ' ' || client_name))>0 ORDER BY client_id,id LIMIT ? OFFSET ?",
