@@ -1,0 +1,4 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+com.ken.platform.foundation.config.PlatformEnvironmentPostProcessor
+org.springframework.context.ApplicationContextInitializer=\
+com.ken.platform.foundation.config.PlatformContextInitializer

@@ -1,0 +1,22 @@
+[
+  {
+    "business_key": "document:42",
+    "cache_key": "doc-insight:local:document-service:11111111-1111-4111-8111-111111111111:document:ZG9jdW1lbnQ6NDI"
+  },
+  {
+    "business_key": "文档/甲:版本 1",
+    "cache_key": "doc-insight:local:document-service:11111111-1111-4111-8111-111111111111:document:5paH5qGjL-eUsjrniYjmnKwgMQ"
+  },
+  {
+    "business_key": "emoji-🚀",
+    "cache_key": "doc-insight:local:document-service:11111111-1111-4111-8111-111111111111:document:ZW1vamkt8J-agA"
+  },
+  {
+    "business_key": "a:b",
+    "cache_key": "doc-insight:local:document-service:11111111-1111-4111-8111-111111111111:document:YTpi"
+  },
+  {
+    "business_key": "a/b",
+    "cache_key": "doc-insight:local:document-service:11111111-1111-4111-8111-111111111111:document:YS9i"
+  }
+]

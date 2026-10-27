@@ -1,0 +1,12 @@
+resources:
+  - resource_id: sample-java-db
+    component: postgresql
+    owner_service: sample-java-service
+    management: create
+    name_binding:
+      database: sample_java
+    roles:
+      owner: sample_java_owner
+      migrator: sample_java_migrator
+      runtime: sample_java_runtime
+    depends_on: []

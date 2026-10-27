@@ -1,0 +1,30 @@
+# 由平台运维复制为 identity 专属 secret 目录中的 federation.yaml。
+# 独立客户端 secret 文件为 federation/corp-client-secret；本文件不放真实秘密。
+spring:
+  config:
+    import: configtree:/run/secrets/federation/
+  security:
+    oauth2:
+      client:
+        registration:
+          corp:
+            provider: corp
+            client-id: replace-with-registered-client
+            client-secret: ${corp-client-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: ${PUBLIC_ORIGIN}/login/oauth2/code/corp
+            scope: openid,profile,email
+        provider:
+          corp:
+            issuer-uri: https://id.example.com
+            authorization-uri: https://id.example.com/authorize
+            token-uri: https://id.example.com/token
+            user-info-uri: https://id.example.com/userinfo
+            jwk-set-uri: https://id.example.com/jwks
+            user-name-attribute: sub
+platform:
+  federation:
+    enabled: true
+    allowed-hosts: id.example.com
+    tenants:
+      corp: tenant-a,tenant-b

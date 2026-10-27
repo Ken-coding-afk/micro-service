@@ -1,0 +1,35 @@
+- name: 管理机锁定本次操作
+  hosts: release_controller
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: 限定唯一管理机与操作标识
+      ansible.builtin.assert:
+        that:
+          - groups['release_controller'] | length == 1
+          - operation_id is match('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$')
+          - project_code is match('^[a-z][a-z0-9-]{0,63}$')
+          - app_env in ['test', 'prod']
+          - control_state_dir is match('^/[^\r\n]+$')
+          - control_state_dir != '/'
+    - name: 准备项目专属记录目录
+      ansible.builtin.file:
+        path: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}"
+        state: directory
+        mode: '0700'
+    - name: 禁止复用已完成的操作 ID
+      ansible.builtin.stat:
+        path: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/{{ operation_id }}.json"
+      register: previous_operation
+    - ansible.builtin.assert:
+        that: not previous_operation.stat.exists
+        fail_msg: 此操作 ID 已完成，使用新的操作 ID，不能覆盖历史证据
+    - name: 原子获取管理锁
+      ansible.builtin.command:
+        argv: [mkdir, '--', "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/lock"]
+      changed_when: true
+    - name: 记录操作所有者
+      ansible.builtin.copy:
+        dest: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/lock/owner.json"
+        content: "{{ {'operation_id': operation_id, 'project': project_code, 'environment': app_env} | to_nice_json }}"
+        mode: '0600'

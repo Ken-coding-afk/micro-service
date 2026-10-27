@@ -1,0 +1,8 @@
+{
+  "admin_username": "initial-admin",
+  "admin_display_name": "首次平台管理员",
+  "initial_password_file": "/run/secrets/identity-initial-admin.password",
+  "platform_bff_secret_file": "/run/secrets/identity-admin-platform.secret",
+  "tenant_bff_secret_file": "/run/secrets/identity-admin-tenant.secret",
+  "publisher_secret_files": {}
+}

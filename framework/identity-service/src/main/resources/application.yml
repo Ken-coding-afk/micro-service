@@ -1,7 +1,10 @@
-# T-01 骨架配置：实际运行参数（Nacos 地址、数据库、issuer 等）由环境注入与 Nacos 下发，
-# 详见《配置与服务发现设计》。本地端口仅为开发默认值。
+# Nacos 地址、数据库、issuer 等只从环境绑定/secret 文件加载；Nacos 只提供经校验的运行参数。
+# 账号、客户端和安全策略从本服务数据库读取，按设计分别接入。
 spring:
   application:
     name: identity-service
 server:
   port: 8081
+  tomcat:
+    # 保持 Spring Security 的同源相对跳转，避免泄露内部服务地址。
+    use-relative-redirects: true

@@ -1,0 +1,15 @@
+- name: 核对已有网络归属
+  community.docker.docker_network_info:
+    name: "{{ application_network }}"
+  register: application_network_info
+- ansible.builtin.assert:
+    that:
+      - not application_network_info.exists or (application_network_info.network.Labels['framework.project'] | default('') == project_code and application_network_info.network.Labels['framework.environment'] | default('') == app_env)
+    fail_msg: 同名网络归属未核实，停止而不改名创建空环境；旧网络需人工核对后登记标签
+- name: 只创建本主机尚不存在的项目网络
+  community.docker.docker_network:
+    name: "{{ application_network }}"
+    labels:
+      framework.project: "{{ project_code }}"
+      framework.environment: "{{ app_env }}"
+  when: not application_network_info.exists

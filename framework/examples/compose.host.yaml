@@ -1,0 +1,27 @@
+# 混合调试：所有被调用实例必须向 Nacos 登记宿主与容器都能到达的地址。
+# DEV_HOST 须在宿主解析为本机；容器 extra_hosts 显式指向 host-gateway。
+# DEV_BIND_HOST 默认 loopback；不修改操作系统 DNS/hosts/防火墙。
+services:
+  identity-service:
+    extra_hosts: ["${DEV_HOST}:host-gateway"]
+    environment:
+      SERVICE_ADVERTISE_HOST: ${DEV_HOST:?填写宿主可解析的本机名称}
+      SERVICE_ADVERTISE_PORT: ${IDENTITY_ADMIN_PORT}
+    ports:
+      - "${DEV_BIND_HOST:-127.0.0.1}:${IDENTITY_ADMIN_PORT}:8081"
+  api-gateway:
+    extra_hosts: ["${DEV_HOST}:host-gateway"]
+  sample-java-service:
+    extra_hosts: ["${DEV_HOST}:host-gateway"]
+    environment:
+      SERVICE_ADVERTISE_HOST: ${DEV_HOST}
+      SERVICE_ADVERTISE_PORT: ${JAVA_HOST_PORT:-48082}
+    ports:
+      - "${DEV_BIND_HOST:-127.0.0.1}:${JAVA_HOST_PORT:-48082}:8082"
+  sample-python-service:
+    extra_hosts: ["${DEV_HOST}:host-gateway"]
+    environment:
+      SERVICE_ADVERTISE_HOST: ${DEV_HOST}
+      SERVICE_ADVERTISE_PORT: ${PYTHON_HOST_PORT:-48083}
+    ports:
+      - "${DEV_BIND_HOST:-127.0.0.1}:${PYTHON_HOST_PORT:-48083}:8083"

@@ -1,0 +1,26 @@
+spring:
+  config:
+    import: configtree:/run/secrets/federation/
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            provider: github
+            client-id: replace-with-github-oauth-app-id
+            client-secret: ${github-client-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: ${PUBLIC_ORIGIN}/login/oauth2/code/github
+            scope: read:user
+        provider:
+          github:
+            authorization-uri: https://github.com/login/oauth/authorize
+            token-uri: https://github.com/login/oauth/access_token
+            user-info-uri: https://api.github.com/user
+            user-name-attribute: id
+platform:
+  federation:
+    enabled: true
+    allowed-hosts: github.com,api.github.com
+    tenants:
+      github: tenant-a

@@ -1,0 +1,27 @@
+{
+  "test_only": true,
+  "cases": [
+    {"name":"empty", "service":"api-gateway", "block":{"routes":[]}, "valid":true},
+    {"name":"api", "service":"api-gateway", "block":{"routes":[{"id":"documents","path":"/api/v1/documents/**","service":"document-service","audience":"documents"}]}, "valid":true},
+    {"name":"protocol", "service":"api-gateway", "block":{"routes":[{"id":"token","path":"/oauth2/token","service":"identity-service"}]}, "valid":true},
+    {"name":"admin-ui", "service":"api-gateway", "block":{"routes":[{"id":"admin","path":"/identity/admin/**","service":"identity-service"}]}, "valid":true},
+    {"name":"wrong-owner", "service":"document-service", "block":{"routes":[]}, "valid":false},
+    {"name":"missing-list", "service":"api-gateway", "block":{}, "valid":false},
+    {"name":"extra-block", "service":"api-gateway", "block":{"routes":[],"refresh":true}, "valid":false},
+    {"name":"wrong-list", "service":"api-gateway", "block":{"routes":{}}, "valid":false},
+    {"name":"all-paths", "service":"api-gateway", "block":{"routes":[{"id":"all","path":"/**","service":"document-service","audience":"documents"}]}, "valid":false},
+    {"name":"internal", "service":"api-gateway", "block":{"routes":[{"id":"internal","path":"/internal/**","service":"document-service","audience":"documents"}]}, "valid":false},
+    {"name":"arbitrary-uri", "service":"api-gateway", "block":{"routes":[{"id":"api","path":"/api/v1/documents/**","service":"http://untrusted.example","audience":"documents"}]}, "valid":false},
+    {"name":"loop", "service":"api-gateway", "block":{"routes":[{"id":"loop","path":"/api/v1/documents/**","service":"api-gateway","audience":"documents"}]}, "valid":false},
+    {"name":"missing-audience", "service":"api-gateway", "block":{"routes":[{"id":"api","path":"/api/v1/documents/**","service":"document-service"}]}, "valid":false},
+    {"name":"wildcard-audience", "service":"api-gateway", "block":{"routes":[{"id":"api","path":"/api/v1/documents/**","service":"document-service","audience":"*"}]}, "valid":false},
+    {"name":"wrong-identity-api", "service":"api-gateway", "block":{"routes":[{"id":"api","path":"/api/v1/identity/**","service":"document-service","audience":"identity-service"}]}, "valid":false},
+    {"name":"wrong-protocol-target", "service":"api-gateway", "block":{"routes":[{"id":"token","path":"/oauth2/token","service":"document-service"}]}, "valid":false},
+    {"name":"protocol-audience", "service":"api-gateway", "block":{"routes":[{"id":"token","path":"/oauth2/token","service":"identity-service","audience":"identity-service"}]}, "valid":false},
+    {"name":"null-audience", "service":"api-gateway", "block":{"routes":[{"id":"token","path":"/oauth2/token","service":"identity-service","audience":null}]}, "valid":false},
+    {"name":"executable-filter", "service":"api-gateway", "block":{"routes":[{"id":"api","path":"/api/v1/documents/**","service":"document-service","audience":"documents","filters":["untrusted-script"]}]}, "valid":false},
+    {"name":"duplicate-id", "service":"api-gateway", "block":{"routes":[{"id":"same","path":"/oauth2/token","service":"identity-service"},{"id":"same","path":"/oauth2/jwks","service":"identity-service"}]}, "valid":false},
+    {"name":"duplicate-path", "service":"api-gateway", "block":{"routes":[{"id":"first","path":"/oauth2/token","service":"identity-service"},{"id":"second","path":"/oauth2/token","service":"identity-service"}]}, "valid":false},
+    {"name":"nonstring-id", "service":"api-gateway", "block":{"routes":[{"id":1,"path":"/oauth2/token","service":"identity-service"}]}, "valid":false}
+  ]
+}

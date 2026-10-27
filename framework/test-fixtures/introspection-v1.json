@@ -1,0 +1,849 @@
+{
+  "test_only": true,
+  "issuer": "http://localhost:18080",
+  "audience": "document-service",
+  "now": 1793000010,
+  "cases": [
+    {
+      "name": "user",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 200
+    },
+    {
+      "name": "aud-string",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": "document-service",
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 200
+    },
+    {
+      "name": "tenant-scope",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "TENANT"
+        }
+      },
+      "status": 200
+    },
+    {
+      "name": "permission-without-object-scope",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {}
+      },
+      "status": 200
+    },
+    {
+      "name": "active-without-permission",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [],
+        "data_scopes": {}
+      },
+      "status": 200
+    },
+    {
+      "name": "platform",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "platform",
+        "permissions": [
+          "platform:tenant:read"
+        ],
+        "data_scopes": {}
+      },
+      "status": 200
+    },
+    {
+      "name": "service-one-tenant",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "fixture-web",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "service",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "status": 200
+    },
+    {
+      "name": "service-multiple-tenants",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "fixture-web",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "service",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "22222222-2222-4222-8222-222222222222",
+          "33333333-3333-4333-8333-333333333333"
+        ]
+      },
+      "status": 200
+    },
+    {
+      "name": "inactive",
+      "claims": {
+        "active": false,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 401
+    },
+    {
+      "name": "expired",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000000,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 401
+    },
+    {
+      "name": "other-issuer",
+      "claims": {
+        "active": true,
+        "iss": "https://untrusted.example",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 401
+    },
+    {
+      "name": "other-audience",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "analysis-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 401
+    },
+    {
+      "name": "active-string",
+      "claims": {
+        "active": "true",
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "missing-active",
+      "claims": {
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "exp-boolean",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": true,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "exp-floating",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600.0,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "exp-missing",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "scope-array",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": [
+          "documents.read"
+        ],
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "permissions-string",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": "document:read",
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "permission-invalid",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "DOCUMENT:READ"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "scope-invalid",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read\r\nadmin",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "orphan-data-scope",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:write": "TENANT"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "unknown-data-scope",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "ALL"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "missing-data-scope-map",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ]
+      },
+      "status": 503
+    },
+    {
+      "name": "user-missing-tenant",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "bad-subject",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "not-a-uuid",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "uppercase-tenant",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "ABCDEFAB-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "platform-has-tenant",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "platform",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {}
+      },
+      "status": 503
+    },
+    {
+      "name": "platform-object-scope",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "platform",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    },
+    {
+      "name": "user-has-multiple-tenants",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "user",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "status": 503
+    },
+    {
+      "name": "service-subject-mismatch",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "different-service",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "service",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "status": 503
+    },
+    {
+      "name": "service-tenant-outside-allowlist",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "fixture-web",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "service",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "33333333-3333-4333-8333-333333333333"
+        ]
+      },
+      "status": 503
+    },
+    {
+      "name": "service-single-tenant-missing-binding",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "fixture-web",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "service",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "status": 503
+    },
+    {
+      "name": "service-multi-tenant-has-binding",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "fixture-web",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "service",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        },
+        "allowed_tenant_ids": [
+          "22222222-2222-4222-8222-222222222222",
+          "33333333-3333-4333-8333-333333333333"
+        ]
+      },
+      "status": 503
+    },
+    {
+      "name": "unknown-principal-type",
+      "claims": {
+        "active": true,
+        "iss": "http://localhost:18080",
+        "sub": "11111111-1111-4111-8111-111111111111",
+        "client_id": "fixture-web",
+        "aud": [
+          "document-service"
+        ],
+        "iat": 1793000000,
+        "exp": 1793000600,
+        "scope": "documents.read profile",
+        "principal_type": "administrator",
+        "tenant_id": "22222222-2222-4222-8222-222222222222",
+        "permissions": [
+          "document:read"
+        ],
+        "data_scopes": {
+          "document:read": "SELF"
+        }
+      },
+      "status": 503
+    }
+  ]
+}

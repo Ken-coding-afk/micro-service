@@ -1,0 +1,5 @@
+# 在项目部署命令中显式追加；identity-service 的 /run/secrets 已由基础 Compose 只读挂载。
+services:
+  identity-service:
+    environment:
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/secrets/federation.yaml

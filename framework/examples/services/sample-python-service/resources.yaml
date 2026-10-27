@@ -1,0 +1,12 @@
+resources:
+  - resource_id: sample-python-db
+    component: postgresql
+    owner_service: sample-python-service
+    management: create
+    name_binding:
+      database: sample_python
+    roles:
+      owner: sample_python_owner
+      migrator: sample_python_migrator
+      runtime: sample_python_runtime
+    depends_on: []

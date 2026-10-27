@@ -1,0 +1,16 @@
+service: sample-python-service
+permissions:
+  - code: python-item:read
+    name: 查看示例资源
+    resource_code: python-item
+    resource_name: 示例资源
+    action_code: read
+    data_scopes: [SELF, TENANT]
+    oauth_scope: python.items.read
+  - code: python-item:create
+    name: 新增示例资源
+    resource_code: python-item
+    resource_name: 示例资源
+    action_code: create
+    data_scopes: []
+    oauth_scope: python.items.write

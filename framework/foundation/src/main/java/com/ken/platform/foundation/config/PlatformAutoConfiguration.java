@@ -1,16 +1,51 @@
 package com.ken.platform.foundation.config;
 
+import com.ken.platform.foundation.discovery.ServiceDiscovery;
+import com.ken.platform.foundation.http.ServiceHttpClient;
+import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.context.annotation.ComponentScan;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * foundation 公共装配入口。
  *
- * <p>T-01 骨架阶段仅建立自动配置链路与包扫描；身份内省、租户上下文、HTTP/数据/消息
- * 适配在 T-03A/T-05A/T-06 按设计逐包补齐。技术依赖在本模块全部 optional，由消费方
- * 显式引入后触发对应条件装配。
+ * <p>基础时钟、发现快照和 HTTP 客户端；Web、Nacos、数据能力分别条件装配。 技术依赖保持 optional，消费方显式引入后才启用。
  */
 @AutoConfiguration
-@ComponentScan(basePackages = "com.ken.platform.foundation")
 public class PlatformAutoConfiguration {
+  @Bean
+  @ConditionalOnMissingBean
+  Clock platformClock() {
+    return Clock.systemUTC();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  ServiceDiscovery platformDiscovery() {
+    return new ServiceDiscovery(System::nanoTime);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  RuntimeParameters platformParameters() {
+    return RuntimeParameters.defaults();
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(
+      name = {
+        "org.springframework.web.reactive.function.client.WebClient",
+        "reactor.netty.http.client.HttpClient"
+      })
+  static class HttpConfiguration {
+    @Bean
+    @ConditionalOnMissingBean
+    ServiceHttpClient platformHttp(
+        ServiceDiscovery discovery, Clock clock, RuntimeParameters parameters) {
+      return ServiceHttpClient.configured(discovery, clock, parameters);
+    }
+  }
 }

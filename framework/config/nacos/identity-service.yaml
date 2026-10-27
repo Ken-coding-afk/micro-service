@@ -1,2 +1,5 @@
 # identity-service 运行参数(仅允许覆盖 application-shared 声明的键)
 log_level: INFO
+# 可选品牌；仅本服务拥有，纯文本/同源绝对路径，变更后重启身份服务。
+# project_display_name: 文档智能平台
+# logo_url: /identity/admin/assets/project-logo.svg

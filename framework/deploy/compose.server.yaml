@@ -1,0 +1,20 @@
+# 与基础 Compose 合并；应用端口只绑定受控私网，入口显式公开 80/443。
+services:
+  identity-service:
+    ports: ["${APP_BIND_HOST:?指定本机私网地址}:${IDENTITY_PORT:-8081}:8081"]
+  api-gateway:
+    ports: ["${APP_BIND_HOST}:${GATEWAY_PORT:-8080}:8080"]
+  nginx:
+    ports:
+      - "${ENTRY_BIND_HOST:?指定入口监听地址}:${HTTPS_PORT:-443}:8443"
+    volumes:
+      - ${EDGE_CERTIFICATE_DIR:?指定版本化证书父目录}:/etc/nginx/tls:ro
+      - ${ACME_WEBROOT:-${RUNTIME_DIR}/acme}:/var/www/acme:ro
+  acme-bootstrap:
+    image: ${NGINX_IMAGE}
+    profiles: [certificate-bootstrap]
+    restart: "no"
+    ports: ["${ENTRY_BIND_HOST}:${ENTRY_PORT:-80}:8080"]
+    volumes:
+      - ./deploy/nginx/acme.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${ACME_WEBROOT:-${RUNTIME_DIR}/acme}:/var/www/acme:ro

@@ -1,8 +1,14 @@
-# T-01 骨架配置：路由与 BFF 参数由 Nacos 下发（设计 02），本地端口仅为开发默认值。
+# 环境绑定由 foundation 启动入口校验；配置快照先完整校验，路由/BFF 在 T-04A/T-05B 接入。
 spring:
   application:
     name: api-gateway
   main:
     web-application-type: reactive
+  autoconfigure:
+    # Redis 仅由 BFF 显式绑定创建；不能因加入依赖而连接默认 localhost:6379。
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration
 server:
   port: 8080

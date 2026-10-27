@@ -1,0 +1,5 @@
+# 仅 local 的管理机入口，供目录发布使用；不监听公网地址。
+services:
+  identity-service:
+    ports:
+      - "127.0.0.1:${IDENTITY_ADMIN_PORT:-18081}:8081"

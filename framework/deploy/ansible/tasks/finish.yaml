@@ -1,0 +1,9 @@
+- name: 保存主机成功记录
+  ansible.builtin.copy:
+    dest: "{{ project_root }}/.local/operations/{{ operation_id }}.json"
+    content: "{{ {'operation_id': operation_id, 'release': release.id, 'host': inventory_hostname, 'status': 'completed'} | to_nice_json }}"
+    mode: '0600'
+- name: 释放已完成主机锁
+  ansible.builtin.file:
+    path: "{{ project_root }}/.local/operations/lock"
+    state: absent

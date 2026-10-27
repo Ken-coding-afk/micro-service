@@ -1,11 +1,11 @@
 # Java与Python协作设计
 
-> 文档版本：1.2；文档集基线：D-20261026-04；更新：2026-10-26。  
-> 状态：目标设计，待整体评审；不代表代码、脚本、镜像或运行能力已实现。  
-> 本文负责：公共包、同步调用、消息与算法任务；服务寻址引用配置设计，聊天运行细节引用 Agent 设计。  
-> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/01-微服务框架实施计划.md)。
+> 文档版本：1.6；文档集基线：D-20261027-03；更新：2026-10-27。  
+> 状态：已确认的目标设计；不代表代码、脚本、镜像或运行能力已实现。  
+> 本文负责：公共包、同步调用与可选消息；服务寻址引用配置设计；不提供业务任务运行时。  
+> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/05-混合项目接入与审查修正实施计划.md)。
 
-文中的路径、接口、配置和命令均为拟交付合同；当前仓库只有文档，不能直接执行这些命令启动系统。
+本文定义目标合同；部分骨架与本地工具已实现，尚不能完整启动框架。各入口的实际交付与验证状态见实施计划。
 
 | 章节 | 阅读目的 |
 | --- | --- |
@@ -14,8 +14,8 @@
 | [3. 跨语言 HTTP 合同](#http) | 跨语言 HTTP 合同 |
 | [4. 调用发现、超时与故障处理](#calls) | 调用发现、超时与故障处理 |
 | [5. 消息、Outbox 与 Inbox](#messaging) | 消息、Outbox 与 Inbox |
-| [6. 长时间算法任务](#analysis-jobs) | 长时间算法任务 |
-| [7. 文档分析项目的完整链路](#document-flow) | 文档分析项目的完整链路 |
+| [6. 业务任务边界](#analysis-jobs) | 业务任务边界 |
+| [7. 独立项目示例](#document-flow) | 独立项目示例 |
 
 <a id="sdk"></a>
 
@@ -33,7 +33,6 @@
 | MQ | envelope、Outbox 投递、Inbox 去重 | 同协议发布/消费与可选 DB 适配 | 声明事件类型、处理事务和幂等策略 |
 | 错误与日志 | 异常映射、JSON 日志、request/trace 字段 | 异常处理器、结构化日志 | 抛明确业务异常，避免泄密 |
 | 健康检查 | liveness/readiness 与依赖指标 | 相同语义的健康端点 | 声明服务真正需要的依赖 |
-| 聊天运行支持 | 使用标准 HTTP/SSE 与 Python 协作；不重复实现 Agent 执行引擎 | 可选 RunStore/RunCoordinator、EventLog、CheckpointStore、ToolLedger 与 LangGraph 适配 | 提供会话模型、Graph/工具、上下文构造与恢复策略；详见 [聊天Agent多节点设计·部署角色与数据归属](08-聊天Agent多节点设计.md#architecture) |
 
 不统一包装 MyBatis、SQLAlchemy、Redis、所有模型 SDK 的全部 API。公共包提供接入钩子与少量规范能力，项目仍直接使用成熟库处理自身业务。只出现一次的辅助函数留在项目；确有多个项目复用且合同稳定后再进入框架。
 
@@ -88,14 +87,14 @@ Java 可调用 Python，Python 也可调用 Java；选择哪一方发起由领�
 
 ## 5. 消息、Outbox 与 Inbox
 
-生产者在同一数据库事务里写业务变化和 Outbox；投递器以行锁/租约领取未投递记录，发送持久消息并等待 publisher confirm 且确认没有 mandatory return，再标记已投递。发布成功但回写失败会产生重复消息，所以消费者必须去重。
+生产者在同一数据库事务里写业务变化和 Outbox；投递器以 `FOR UPDATE SKIP LOCKED` 行锁领取当前租户未投递记录，发送持久消息并等待 publisher confirm 且确认没有 mandatory return，再标记已投递。发布成功但回写失败会产生重复消息，所以消费者必须去重。
 
 消息 envelope 最小合同：
 
 | 字段 | 约定 |
 | --- | --- |
 | `event_id` | UUID；同一事件重投保持不变 |
-| `event_type` | 如 `document.analysis.requested` |
+| `event_type` | 如 `item.created` |
 | `schema_version` | 整数，从 1 起；不兼容变化创建新版本 |
 | `tenant_id` | 租户 UUID；消费者须核对资源归属 |
 | `producer` | 服务名；结合 RabbitMQ vhost/账号/exchange 发布权限验证来源边界 |
@@ -110,83 +109,29 @@ Inbox 去重索引默认长期保留，只存去重与处理结果所需字段�
 
 持久化事件有限重试，默认 5 秒、30 秒、2 分钟三次重投，之后进入隔离队列并告警；重投发布确认后才 ack 原消息，允许重复，不允许静默丢弃。未知 schema_version 直接隔离。隔离消息修复后可带原 event_id 重投；禁止无限 requeue 热循环。
 
+消息适配由业务显式创建，框架不自动启动 worker 或枚举所有租户。每个队列使用同名 direct exchange，主队列、延迟重试与隔离队列使用 quorum；重试转移启用 at-least-once dead lettering。消费前核对 broker 验证的 user_id 与所允许生产者，重投账户也必须明确登记；服务账号权限限制到实际需要的 exchange/queue。示例共用账号只用于本地。生产告警接收、消费生命周期及外部副作用幂等属于业务/运维责任，SDK 输出隔离错误记录而不建设告警平台。
+
 RabbitMQ 的 publisher confirm 和 consumer ack 是两个独立确认，只分别证明对应阶段的处理，不提供数据库与消息的原子提交。[RabbitMQ 确认机制](https://www.rabbitmq.com/docs/confirms)
 
 <a id="analysis-jobs"></a>
 
-## 6. 长时间算法任务
+## 6. 业务任务边界
 
-**与聊天 Run 的区别：** 算法排队超时进入 RECOVERY_REQUIRED，保留该分析任务供授权人员判断恢复；聊天排队超时进入 FAILED/QUEUE_TIMEOUT 并推进会话后续轮次。相同状态名不代表同一实体或处理器；算法调用任务所有者的内部 API，聊天由同服务 SDK 访问数据库。聊天参数独立定义于[聊天恢复与容量](08-聊天Agent多节点设计.md#recovery)，不得共用无前缀的 task_timeout。
+框架不提供算法任务表、Run 状态机、租约、检查点、工具账本或 Celery/LangGraph 包装。长任务由业务项目选择成熟执行组件并负责取消、恢复、预算、幂等及外部副作用。SDK 只提供身份/租户、发现、HTTP、可选消息和数据事务接入。
 
-“文档分析”示例由 Java `document-service` 拥有任务状态。全 Python 项目可由 Python 业务服务承担相同角色，不要求另加 Java 业务服务。identity-service 不存放所有项目任务。
-
-流程如下：
-
-1. 用户提交 `POST /api/v1/analysis-jobs`，包含 document_id 和模型配置标识，header 带 Idempotency-Key。
-2. 业务服务检查当前用户、租户、scope、`document:analyze` 和文档归属；同事务写任务 QUEUED、输入快照/版本与 Outbox。返回 202 和 job_id。
-3. Outbox 发布 `document.analysis.requested`，只含 job_id、tenant_id、输入版本；不把用户 access token 放进 MQ。
-4. Python Worker 用 Client Credentials 取得仅面向任务内部接口的机器 token。收到消息后调用任务所有者的 claim 接口；由所有者核对队列类型、租户状态、提交者当前权限、任务状态及 worker 授权。
-5. claim 成功返回 attempt_id、lease_expires_at、输入元信息/短时文件访问许可、deadline。Worker 只根据可信返回开始计算，不执行消息体中任意 URL 或 shell 指令。
-6. Worker 定期续租并检查取消标志；计算输出写入受限对象 key 后，调用 complete。所有者校验 attempt、版本、租约和对象归属，在事务中写终态和完成事件 Outbox。
-7. complete 已持久化或确认该任务已终态后，Worker ack。连接中断重投时先查状态，不重新运行已成功任务。
-8. 前端使用任务查询 API；需要交互体验时增加 SSE 通知，数据库任务状态始终是事实来源。
-
-任务最小字段：`id/tenant_id/owner_user_id/type/status/input_ref/input_version/idempotency_key/request_hash/attempt_id/worker_id/lease_expires_at/deadline_at/cancel_requested/result_ref/error_code/version/created_at/updated_at`。
-
-幂等唯一键为 `(tenant_id, owner_user_id, operation, idempotency_key)`。相同 key、相同 request_hash 返回原任务；相同 key、不同请求返回 409。任务记录至少保留 30 天；清理后不承诺相同 key 跨保留期去重，客户端必须每个新的操作生成新 key。
-
-内部合同，路径以任务所有者的服务地址为前缀：
-
-| 接口 | 输入 | 原子检查与结果 |
-| --- | --- | --- |
-| `POST /internal/v1/analysis-jobs/{id}/claim` | event_id、tenant_id、worker_id | QUEUED → RUNNING；一次生成 attempt_id；已终态返回终态；已被领取返回 409 JOB_ALREADY_CLAIMED，不能再次执行；同 worker 的重试仅可取回仍有效的原 attempt，不新建执行权 |
-| `POST .../{id}/heartbeat` | attempt_id | 核对当前 worker 与 attempt；续租并返回 cancel_requested；失效 attempt 返回 409 JOB_LEASE_LOST |
-| `POST .../{id}/complete` | attempt_id、status、result_ref 或 error_code | 只接受当前有效 attempt；同 attempt 同内容可重放；冲突结果 409 JOB_RESULT_CONFLICT；终态不可覆盖 |
-| `POST /api/v1/analysis-jobs/{id}/cancel` | 无额外权限声明 | 校验用户有该任务取消权限及数据范围；QUEUED 直接取消，RUNNING 只置取消请求 |
-| `POST /api/v1/analysis-jobs/{id}/retry` | reason，非空 | 仅 `document:recover` + TENANT；FAILED/RECOVERY_REQUIRED → QUEUED；清除旧租约、写新派发 Outbox；其他状态拒绝 |
-| `GET /api/v1/analysis-jobs/{id}` | job_id | 根据当前用户的数据范围读取状态；不返回内部凭证 |
-
-算法任务独立配置名为 analysis_jobs.lease_seconds=120、heartbeat_seconds=30、execution_timeout_seconds=1800、queue_timeout_seconds=3600；本节是这些值的唯一来源。类型覆盖由任务所有者声明并在提交时冻结；心跳必须小于租约，改变配置不追溯改变已提交任务的 deadline。RabbitMQ consumer timeout 必须大于任务最大执行时间及收尾窗口；prefetch 默认 1，按 CPU/GPU 配额扩容 Worker，不能无限并发。
-
-| 现态 | 触发 | 后态 / 处理 |
-| --- | --- | --- |
-| QUEUED | 领取并提交事务 | RUNNING |
-| QUEUED | 用户取消 | CANCELLED，后续重复投递直接确认 |
-| QUEUED | 合法 Worker 领取时确认提交者/租户已失效 | CANCELLED，记录 AUTH_REVOKED；不继续循环重投 |
-| QUEUED | 超过配置的排队上限，按 queue_timeout_seconds | RECOVERY_REQUIRED，原因 QUEUE_TIMEOUT；由扫描器标记并告警，不能永久显示“排队中” |
-| RUNNING | 当前 attempt 成功完成 | SUCCEEDED |
-| RUNNING | 明确的业务失败 | FAILED，记录可理解的错误码 |
-| RUNNING | 取消请求且 Worker 确认已停止 | CANCELLED |
-| RUNNING | 租约过期、进程失联、结果无法判定 | RECOVERY_REQUIRED；不自动重新执行可能已有副作用的任务 |
-| RECOVERY_REQUIRED / FAILED | 有权限的操作者明确重试 | 检查副作用风险后生成新 attempt 的派发流程；旧 attempt 永久无效 |
-
-取消与完成竞态采用状态行锁：取消标志先提交时拒绝普通成功 complete，Worker 收到取消后报告停止或进入待恢复；成功终态先提交时取消返回已完成。已经对外发送邮件、扣费或修改外部系统的操作不能伪装成“取消已回滚”，必须记录事实并人工确认补偿。
-
-租约过期的迟到结果拒绝写入正式结果，可记录到受限的恢复审计中供人工判定。重复消息发现仍在运行时可以 ack 该副本；恢复由持久任务扫描负责。Worker 与 MQ 同时失联但仍计算的情形不能保证只执行一次；副作用工具需要自己的幂等键和结果查询。
-
-领取时如果是 identity-service/数据库暂时不可用，保留 QUEUED，按有限投递规则处理；不能把依赖故障误判成权限撤销。扫描器每分钟检查过期租约和排队期限，使用状态/version 条件更新，和 claim 竞态只允许一方成功。
-
-AI Agent 工具调用也经过服务权限控制，模型输出不能指定任意 tenant_id、user_id 或调用任意内网地址。任务保存模型/提示词/工具版本、用量和输出引用；默认日志不记录完整敏感提示词。每类任务声明超时、最大步骤、token/费用预算与允许工具。python-sdk 基础包不强制依赖 Agent 库；聊天示例采用可选 LangGraph 适配。文档批任务遵循本节，聊天 Run 的排队、人工等待、恢复与 SSE 行为以 [聊天Agent多节点设计·部署角色与数据归属](08-聊天Agent多节点设计.md#architecture) 为准，不把两套状态机机械混用。
+未来聊天 Agent 可作为普通 Python 服务多节点部署；业务项目负责状态外置与恢复。请求中不依赖进程内会话；共享缓存/存储按租户隔离。流式代理的通用边界见[部署设计](09-应用部署与运维设计.md#proxy)，并不自动带来事件回放。
 
 <a id="document-flow"></a>
 
-## 7. 文档分析项目的完整链路
+## 7. 独立项目示例
 
-以 `examples/java/document-service` 和 `examples/python/analysis-service` 为例：
+Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，使用已发行包；不依赖 framework 源码路径。单语言项目只复制一个，组合项目使用不同逻辑服务名。示例实现一种普通资源的创建/查询及 SELF/TENANT 检查，权限由服务制品同步到同一个通用管理页。
 
-1. 用户上传文档；Java 验证当前租户及文档创建权限，将对象存储引用、文档记录、分析任务和 Outbox 事件在可覆盖的本地事务中关联。文件先上传产生临时对象时，需要明确过期清理；不能宣称对象存储与数据库天然同事务。
-2. Outbox 发布分析请求到约定 exchange/routing key，携带事件 ID、任务 ID、租户、版本及受控对象引用；消息不携带浏览器 token、模型密钥或大文件正文。
-3. Python 接收后验证来源与合同，以 Inbox 去重，并按算法任务合同领取执行权；不能仅凭收到消息就假定当前 Worker 有权执行。对象引用访问仍验证租户和任务授权。
-4. 算法实现、解析流程、提示词、模型选择与结果 schema 由项目提供。框架提供上下文、日志、消息、执行状态和受控客户端，不替业务决定算法质量。
-5. 结果持久化并发布完成事实；Java 按任务 ID、attempt 和版本接受有效结果，更新文档业务状态。迟到旧结果不覆盖新任务，重复通知不重复收费或创建记录。
-6. 前端从 Java 查询业务状态；需要进度时使用项目明确的进度合同，不能把聊天 SSE 协议自动套到所有算法任务。
-7. Python 或 Rabbit 中断后，由任务状态及持久化事件恢复。Java 页面展示处理中、失败或需要人工恢复，不因 HTTP 连接丢失把已提交任务判为不存在。
+验收先单语言独立启动、登录、两租户隔离，再验证 Java→Python 与 Python→Java HTTP。启用消息才安装 mq 适配与 RabbitMQ，另验证发送确认、重复投递、提交后 ack 与未知版本隔离；不阻塞纯 HTTP 示例。
 
-业务项目必须实现的内容是文档实体、文件规则、算法与结果解释、领域权限和页面。基础身份/权限管理页、鉴权、隔离、日志、发现与消息通用能力直接复用。演示必须同时包含成功、重复消息、Worker 失联和跨租户拒绝，不能只演示一次 happy path。
 
-参考资料：以下为组件参考资料；本次只重新核验了认证文档新增引用的 Spring 客户端模型与 NIST 密码建议，其余在线版本未重新核验。框架具体默认策略由本文定义，不能认为引用组件就自动实现了全部业务合同；实施兼容冻结任务须复核版本与能力。
+## 修订记录
 
-| 来源 | 参考用途 |
-| --- | --- |
-| [FastAPI 生命周期](https://fastapi.tiangolo.com/advanced/events/) | 用 lifespan 管理进程资源 |
-| [RabbitMQ confirms / acknowledgements](https://www.rabbitmq.com/docs/confirms) | 发布者确认和消费者确认的不同语义 |
+- 2026-10-27，D-20261027-02：明确可选消息适配的行锁、来源账号、拓扑与业务负责的消费者/告警边界。
+
+- 2026-10-27，D-20261027-03：统一混合项目目录及接入路径；业务配置扩展、管理页和发布恢复合同按计划 05 修正；实际验收见计划 05。

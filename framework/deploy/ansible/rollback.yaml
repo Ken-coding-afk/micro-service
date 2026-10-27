@@ -1,0 +1,4 @@
+# 与发布共用管理锁；锁内验证当前成功发行、回退窗口和授权影响声明。
+- ansible.builtin.import_playbook: deploy.yaml
+  vars:
+    rollback_requested: true

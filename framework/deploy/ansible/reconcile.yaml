@@ -1,0 +1,45 @@
+- name: 只读核对中断现场，不抢锁、不重新执行
+  hosts: apps:infra:migration_controller:release_controller
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: 核对管理机操作锁
+      ansible.builtin.stat:
+        path: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/lock/owner.json"
+      when: inventory_hostname in groups['release_controller']
+      register: controller_operation_lock
+    - name: 检查本机操作锁
+      ansible.builtin.stat:
+        path: "{{ project_root }}/.local/operations/lock/owner.json"
+      register: operation_lock
+    - name: 读取未完成发布范围（如有）
+      when: inventory_hostname in groups['release_controller']
+      block:
+        - ansible.builtin.stat:
+            path: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/latest-attempt.json"
+          register: attempt_file
+        - ansible.builtin.slurp:
+            src: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/latest-attempt.json"
+          register: attempt_content
+          when: attempt_file.stat.exists
+        - ansible.builtin.debug:
+            msg:
+              operation_id: "{{ (attempt_content.content | b64decode | from_json).operation_id }}"
+              status: "{{ (attempt_content.content | b64decode | from_json).status }}"
+              targets: "{{ (attempt_content.content | b64decode | from_json).targets }}"
+              schema_release: "{{ (attempt_content.content | b64decode | from_json).schema_release }}"
+              recovery_deadline: "{{ (attempt_content.content | b64decode | from_json).recovery_deadline }}"
+          when: attempt_file.stat.exists
+    - name: 列出本项目运行容器与镜像
+      ansible.builtin.command:
+        argv: [docker, ps, -a, --filter, "label=com.docker.compose.project={{ project_code }}-{{ app_env }}-apps", --format, '{{ "{{" }}.Names{{ "}}" }} {{ "{{" }}.Image{{ "}}" }} {{ "{{" }}.Status{{ "}}" }}']
+      register: containers
+      changed_when: false
+    - name: 展示有限事实
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          lock_present: "{{ operation_lock.stat.exists }}"
+          controller_lock_present: "{{ controller_operation_lock.stat.exists | default(false) }}"
+          containers: "{{ containers.stdout_lines }}"
+          next: 核对迁移状态文件、PG 历史与远程进程后决定恢复；本入口不解除锁

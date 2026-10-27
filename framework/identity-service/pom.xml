@@ -7,7 +7,7 @@
   <parent>
     <groupId>com.ken.platform</groupId>
     <artifactId>platform-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0-rc.2</version>
   </parent>
 
   <artifactId>identity-service</artifactId>
@@ -15,7 +15,16 @@
   <name>identity-service</name>
   <description>身份服务：租户账号、角色权限、OAuth2/OIDC 授权服务器、审计与内置管理界面</description>
 
+  <properties>
+    <admin.pnpm.executable>pnpm</admin.pnpm.executable>
+    <skipAdminBuild>false</skipAdminBuild>
+  </properties>
+
   <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-client</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.ken.platform</groupId>
       <artifactId>foundation</artifactId>
@@ -31,6 +40,18 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.session</groupId>
+      <artifactId>spring-session-data-redis</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-thymeleaf</artifactId>
     </dependency>
     <dependency>
       <groupId>com.baomidou</groupId>
@@ -62,15 +83,68 @@
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- 仅跨语言 HTTP 集成测试的 Java 调用方需要，不进入身份服务运行制品。 -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-webflux</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.projectreactor.netty</groupId>
+      <artifactId>reactor-netty-http</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
     <finalName>identity-service</finalName>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource><directory>${project.build.directory}/generated-resources</directory></resource>
+    </resources>
     <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <executable>${admin.pnpm.executable}</executable>
+          <workingDirectory>${project.basedir}/admin</workingDirectory>
+          <skip>${skipAdminBuild}</skip>
+        </configuration>
+        <executions>
+          <execution>
+            <id>admin-frozen-dependencies</id><phase>generate-resources</phase><goals><goal>exec</goal></goals>
+            <configuration><arguments><argument>install</argument><argument>--frozen-lockfile</argument><argument>--ignore-scripts</argument></arguments></configuration>
+          </execution>
+          <execution>
+            <id>admin-checked-build</id><phase>generate-resources</phase><goals><goal>exec</goal></goals>
+            <configuration><arguments><argument>run</argument><argument>verify:build</argument></arguments></configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.6.3</version>
+        <executions>
+          <execution>
+            <id>require-built-admin</id><phase>prepare-package</phase><goals><goal>enforce</goal></goals>
+            <configuration><rules><requireFilesExist><files><file>${project.build.directory}/generated-resources/static/identity/admin/index.html</file></files></requireFilesExist></rules></configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <id>admin-windows</id><activation><os><family>Windows</family></os></activation>
+      <properties><admin.pnpm.executable>pnpm.cmd</admin.pnpm.executable></properties>
+    </profile>
+  </profiles>
 </project>

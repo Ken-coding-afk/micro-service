@@ -1,0 +1,11 @@
+# 仅启用消息时显式初始化此清单；不会默认安装 RabbitMQ。
+resources:
+  - resource_id: rabbit-vhost
+    component: rabbitmq
+    owner_service: platform
+    management: create
+    name_binding:
+      vhost: default              # 解析为 {PROJECT_CODE}-{APP_ENV}
+    roles:
+      app: app                    # 应用发布/消费账号,仅授予本 vhost 权限
+    depends_on: []

@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: sample-java-service
+  main:
+    web-application-type: servlet
+server:
+  port: 8082

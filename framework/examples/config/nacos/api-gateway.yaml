@@ -1,0 +1,11 @@
+log_level: INFO
+gateway:
+  routes:
+    - id: java-items
+      path: /api/v1/java-items/**
+      service: sample-java-service
+      audience: sample-java-service
+    - id: python-items
+      path: /api/v1/python-items/**
+      service: sample-python-service
+      audience: sample-python-service

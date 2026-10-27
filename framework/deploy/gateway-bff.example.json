@@ -1,0 +1,8 @@
+{
+  "platform_secret_file": "/run/secrets/identity-admin-platform",
+  "tenant_secret_file": "/run/secrets/identity-admin-tenant",
+  "web": {
+    "secret_file": "/run/secrets/web-bff",
+    "requested_scopes": ["profile"]
+  }
+}

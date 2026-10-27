@@ -1,0 +1,14 @@
+- name: 成功后释放管理锁
+  hosts: release_controller
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: 保存本次成功证据
+      ansible.builtin.copy:
+        dest: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/{{ operation_id }}.json"
+        content: "{{ {'operation_id': operation_id, 'status': 'completed', 'project': project_code, 'environment': app_env} | to_nice_json }}"
+        mode: '0600'
+    - name: 仅删除本项目已完成操作锁
+      ansible.builtin.file:
+        path: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/lock"
+        state: absent

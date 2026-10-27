@@ -1,0 +1,49 @@
+upstream application_gateway {
+{% for endpoint in edge_gateway_upstreams %}
+    server {{ endpoint }};
+{% endfor %}
+    keepalive 32;
+}
+server {
+    listen 8080;
+    server_name {{ edge_server_name }};
+    server_tokens off;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/acme;
+        try_files $uri =404;
+    }
+    location / { return 308 https://{{ edge_server_name }}$request_uri; }
+}
+server {
+    listen 8443 ssl;
+    server_name {{ edge_server_name }};
+    server_tokens off;
+    ssl_certificate /etc/nginx/tls/current/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/current/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 2m;
+    root /usr/share/nginx/html;
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store" always;
+    }
+    location ~ ^/(internal/|actuator/) { return 404; }
+    location ~ ^/(api/|identity/|oauth2/|login/oauth2/|\.well-known/|bff/|connect/|userinfo$) {
+        proxy_pass http://application_gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Service-Authorization "";
+        proxy_set_header X-Tenant-Id "";
+        proxy_set_header X-User-Id "";
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+}

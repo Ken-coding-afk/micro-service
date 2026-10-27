@@ -1,11 +1,11 @@
 # 认证与OAuth2设计
 
-> 文档版本：1.2；文档集基线：D-20261026-04；更新：2026-10-26。  
-> 状态：目标设计，待整体评审；不代表代码、脚本、镜像或运行能力已实现。  
+> 文档版本：1.6；文档集基线：D-20261027-03；更新：2026-10-27。  
+> 状态：已确认的目标设计；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：登录、OAuth2/OIDC、token/BFF、第三方身份和机器认证。  
-> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/01-微服务框架实施计划.md)。
+> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/05-混合项目接入与审查修正实施计划.md)。
 
-文中的路径、接口、配置和命令均为拟交付合同；当前仓库只有文档，不能直接执行这些命令启动系统。
+本文定义目标合同；部分骨架与本地工具已实现，尚不能完整启动框架。各入口的实际交付与验证状态见实施计划。
 
 | 章节 | 阅读目的 |
 | --- | --- |
@@ -84,7 +84,7 @@ sys_client_policy.registered_client_id 唯一且外键指向官方记录内部 i
 
 停用后不再签发或刷新，后续内省判 inactive；已有请求不能保证强行撤回。scopes、audiences 或租户范围收紧后，旧授权受当前策略与签发上限的交集限制；扩大策略不得扩大存量 token 的签发 scopes/audiences。并发 token 签发在最终写入前重新核对 policy.version；版本变化重新验证或失败，不使用过期校验结果。撤销事实、策略与审计提交后再清理缓存/会话，不能以异步双写实现安全一致性。
 
-[Spring 官方 RegisteredClient 模型](https://docs.spring.io/spring-security/reference/servlet/oauth2/authorization-server/core-model-components.html)定义协议字段和 Repository 接口；租户、audience、状态属于本框架扩展。实际 JDBC/PG 类型和事务集成由 T-04A 验证，不假定“用了官方表”就自动具备多租户策略。
+[Spring 官方 RegisteredClient 模型](https://docs.spring.io/spring-security/reference/servlet/oauth2/authorization-server/core-model-components.html)定义协议字段和 Repository 接口；租户、audience、状态属于本框架扩展。实际 JDBC/PG 类型和事务集成由精简计划 T-04 验证，不假定“用了官方表”就自动具备多租户策略。
 
 <a id="bff"></a>
 
@@ -113,8 +113,12 @@ sys_client_policy.registered_client_id 唯一且外键指向官方记录内部 i
 1. 登录前确定 tenant_code；identity-service 将解析后的 tenant_id、提供方、原授权请求及一次性 state 存在服务器端。
 2. 跳转外部身份提供方。回调严格验证 state；OIDC 同时验证 issuer、签名、audience、nonce 和时间。
 3. 以 `(tenant_id, provider_registration_id, provider_subject)` 查绑定；禁止仅凭同名用户名或相同邮箱自动合并账号。
-4. 已绑定且账号有效：完成本租户登录。未绑定：提示先登录本租户账号完成显式绑定；无账号者仅能进入该租户允许的注册/邀请流程，关闭注册时联系管理员；回调不自动开户。
+4. 已绑定且账号有效：完成本租户登录。未绑定：提示先登录本租户账号完成显式绑定；无账号者联系管理员开户；回调不自动开户。
 5. provider 回调本身不能覆盖服务器保存的 tenant_id。第三方 token 只用于该身份交换，不直接作为我们业务 API 的凭证。
+
+提供方采用 Spring `ClientRegistration` 固定部署配置，由项目运维维护，秘密通过仅身份进程可读的文件注入。平台不提供在线提供方编辑器或插件注册系统；支持的注册项、允许主机、适用租户和精确回调均在启动时检查。OIDC 用标准组件处理 state/nonce/PKCE/ID Token；GitHub OAuth2 固定官方端点及用户 id。外部授权状态最多保留 5 分钟，成功或失败后不能重放。
+
+登录、本人绑定和解绑入口是 `/identity/external` 及其固定 POST 操作；绑定需要近期本租户认证，回调复查该会话仍有效，绑定成功撤销旧会话后重新登录。解绑复核本人密码，保留本地密码登录，不自动撤销所有现有会话；需要注销时使用既有会话撤销入口。`sys_external_identity` 是租户、注册项、subject 到本地用户的唯一绑定，另锁定对应 authority，配置同名提供方不能静默接管旧绑定。第三方 token 不落库、Redis 或业务日志。
 
 本设计交付通用 OIDC 接入和 GitHub OAuth2 接入示例。企业微信等提供方有其专用协议/参数，后续接入应通过提供方适配和真实凭证测试，不能因为支持 OAuth2 就声称所有厂商可零配置登录。
 
@@ -153,9 +157,9 @@ Client Credentials 的 token 不接受通过任意 `tenant_id` 参数扩大授�
 
 ## 8. 密码、登录保护与安全策略字段
 
-安全策略只保存在 identity 数据库；Nacos 不承载密码或账号登录策略。sys_security_policy 使用 id、owner_type（PLATFORM/TENANT）、owner_tenant_id（平台为 null）、下列明确字段及 version，按归属唯一。TENANT 的 null 字段表示继承，不是关闭；IP 限速字段仅 PLATFORM 可写，TENANT 必须为 null。平台基线与租户收紧值合成有效策略；未知字段、非法范围或放宽提交整体返回 400 SECURITY_POLICY_INVALID，版本冲突 409。
+安全策略只保存在 identity 数据库，由平台管理员维护一份项目策略；Nacos 不承载账号策略。sys_security_policy 保留既有表与 PLATFORM 行，TENANT 历史行停止编辑。上线前检查历史租户差异：无法在不削弱保护前提下统一时停止切换并明确统一值，不静默忽略更严格的租户策略。字段名、默认值与合法范围如下，未知字段/非法范围整体返回 400 SECURITY_POLICY_INVALID，版本冲突 409。
 
-| 字段 | 平台默认 / 合法范围 | 租户覆盖与生效 |
+| 字段 | 项目默认 / 合法范围 | 项目策略调整与生效 |
 | --- | --- | --- |
 | password_min_chars | 15；15—32 个 Unicode 码点 | 只能提高；仅设置/修改密码时校验 |
 | password_max_chars | 固定 64 | 不可调整；不截断输入 |
@@ -171,13 +175,13 @@ Client Credentials 的 token 不接受通过任意 `tenant_id` 参数扩大授�
 | session_idle_seconds | 1800；60—1800，且不得大于 absolute | 只能缩短；按最后活动时间计算 |
 | recent_auth_seconds | 300；60—300 | 只能缩短；改密、绑定/解绑、凭据轮换等敏感动作重新认证时限 |
 
-当前哈希使用 PasswordEncoder 的算法前缀与 BCrypt cost=12；算法/cost 不对普通租户开放。密码保留用户输入，不 trim，不截断；码点数和 UTF-8 字节上限同时满足。默认不要求定期换密，首次临时密码、已知泄露或主动重置另有流程。参考 NIST 对单因素密码最小长度、弱密码名单及避免字符组合规则的建议；本方案保留 BCrypt 字节限制，**不据此宣称完整满足 NIST 的所有要求**。[NIST 密码与限速要求](https://pages.nist.gov/800-63-4/sp800-63b.html)
+新密码使用标准 PasswordEncoder 的算法前缀与 BCrypt cost=12；匹配通过 DelegatingPasswordEncoder 受控算法映射，接受批准的 bcrypt 格式及合法成本，不用固定成本正则阻止已有密码；不启用 noop；算法/cost 不对普通租户开放。密码保留用户输入，不 trim，不截断；码点数和 UTF-8 字节上限同时满足。默认不要求定期换密，首次临时密码、已知泄露或主动重置另有流程。参考 NIST 对单因素密码最小长度、弱密码名单及避免字符组合规则的建议；本方案保留 BCrypt 字节限制，**不据此宣称完整满足 NIST 的所有要求**。[NIST 密码与限速要求](https://pages.nist.gov/800-63-4/sp800-63b.html)
 
-Redis 按原子操作维护限速/临时锁记录，账号 key 包含已解析租户和规范化账号的不可逆摘要；不存在账号也走同类限制，响应不泄露存在性。可信来源 IP 的确定见入口设计，不信任外部任意 X-Forwarded-For。锁定期请求不继续延长 locked_until，防止无限滑动锁死；到期清除该轮账号失败计数，成功登录清除账号失败记录但不清 IP 请求计数。登录失败统一 401 INVALID_CREDENTIALS，受限返回 429 LOGIN_RATE_LIMITED 和 Retry-After；不区分账号存在与否。限速存储故障返回 503，不关闭保护。平台受保护的恢复流程可解锁并审计，普通委派管理员不能借解锁重置凭据。
+Redis 按原子操作维护限速/临时锁记录，账号 key 包含已解析租户和规范化账号的不可逆摘要；不存在账号也走同类限制，响应不泄露存在性。可信来源 IP 的确定见入口设计，不信任外部任意 X-Forwarded-For。锁定期请求不继续延长 locked_until，防止无限滑动锁死；到期清除该轮账号失败计数，成功登录清除账号失败记录但不清 IP 请求计数。登录失败统一 401 INVALID_CREDENTIALS，受限返回 429 LOGIN_RATE_LIMITED 和 Retry-After；不区分账号存在与否。限速存储故障返回 503，不关闭保护。平台受保护的恢复流程可解锁并审计，普通用户不能借解锁重置凭据。
 
 保存策略后，下一次密码设置、认证及会话检查读取当前有效策略；缩短会话期限按原始创建/活动时间重算，不能复活已过期会话。已存在临时锁保留其到期时间，新锁按新策略；已有失败记录按当前窗口评估。OAuth token 上限仍归 Token 生命周期章节，收紧会话使相关授权按撤销规则失效，不能用延长 Cookie 绕过 refresh 的绝对期限。
 
-管理页只展示/编辑允许字段及继承值，不另行计算一套政策。T-04A 验证阈值边界、窗口过期、并发失败、未知账号、Redis 故障和动态收紧；T-07A 验证继承提示与禁止放宽。
+管理页只允许平台管理员编辑项目策略，租户策略编辑入口关闭；生效与失败路径由同一服务端校验。保留锁定、密码保护、会话撤销和审计，不因去掉继承而降低防护。
 
 <a id="introspection"></a>
 
@@ -189,7 +193,7 @@ Redis 按原子操作维护限速/临时锁记录，账号 key 包含已解析�
 
 用户有效操作集合 = 当前有效角色权限 ∩ 当前客户端策略允许的操作 ∩ token scopes 映射的操作 ∩ 目标 audience 的操作 ∩ 当前租户已启用能力。对象数据范围从上述交集中的角色授权合并取得；权限被过滤时，其 data_scopes 同时删除。客户端策略变窄后，旧 token 在下一次内省也不能继续使用被取消的权限；策略变宽不能突破旧 token 的 scopes。机器主体没有用户角色，其操作集合改取机器身份登记的授权，仍与客户端策略、token scopes、租户能力和目标 audience 取交集。
 
-identity-service 内使用同一个 `AuthorizationEvaluator`（拟新增内部组件，不新增服务）计算角色来源、授权交集和拒绝原因。内省、当前应用 `/me`、管理查询与授权预览复用该计算过程；SDK 根据内省结果检查声明的权限，不再为了同一权限额外远程调用一个“鉴权服务”。成功内省不缓存的合同不变。
+identity-service 内使用同一个 `AuthorizationEvaluator`（拟新增内部组件，不新增服务）计算角色来源、授权交集和拒绝原因。内省、当前应用 `/me`、管理查询复用该计算过程；SDK 根据内省结果检查声明的权限，不再为了同一权限额外远程调用一个“鉴权服务”。成功内省不缓存的合同不变。
 
 用户访问的最终条件为：
 
@@ -205,7 +209,7 @@ AND 目标数据满足该权限的数据范围
 
 OAuth scope 决定“这个客户端获准代表用户做哪些事”；角色决定“用户在租户中能做哪些事”；数据范围决定“能操作哪些记录”。三者取交集，外部应用即使获得 scope 也不能超过用户原有权限。
 
-授权解释采用本节 AuthorizationEvaluator：返回 `ALLOWED`、`NO_ROLE_GRANT`、`ROLE_DISABLED`、`PERMISSION_DISABLED`、`CLIENT_SCOPE_LIMITED`、`TOKEN_SCOPE_LIMITED`、`AUDIENCE_MISMATCH`、`TENANT_CAPABILITY_DISABLED` 等稳定原因码及中文说明，必要时附多个原因。管理模拟以拟申请 scopes 计算并标明“模拟”，不冒充某个存量 token 的实际结果；运行时以 token 实际 scopes 计算。查询与模拟均校验目标管理范围，不能用于枚举其他用户/租户。普通内省和业务 403 只返回必要信息，详细角色来源留在受权管理入口。
+授权解释采用本节 AuthorizationEvaluator：返回 `ALLOWED`、`NO_ROLE_GRANT`、`ROLE_DISABLED`、`PERMISSION_DISABLED`、`CLIENT_SCOPE_LIMITED`、`TOKEN_SCOPE_LIMITED`、`AUDIENCE_MISMATCH`、`TENANT_CAPABILITY_DISABLED` 等稳定原因码及中文说明，必要时附多个原因。不提供管理模拟接口；运行时以 token 实际 scopes 计算。实际权限查询校验目标管理范围，不能用于枚举其他用户/租户。普通内省和业务 403 只返回必要信息，详细角色来源留在受权管理入口。
 
 <a id="origins"></a>
 
@@ -243,3 +247,18 @@ Nginx/Gateway 仅信任登记的代理链，固定 Host/Proto 与回调不接受
 | [Spring PKCE 与公共客户端](https://docs.spring.io/spring-authorization-server/reference/guides/how-to-pkce.html) | 公共客户端、PKCE 与 refresh token 边界 |
 | [Spring OAuth2 Client 授权模式](https://docs.spring.io/spring-security/reference/7.0/servlet/oauth2/client/authorization-grants.html) | 授权码与 Client Credentials 客户端支持 |
 | [Spring opaque Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/opaque-token.html) | 通过内省验证 opaque token |
+
+### 新服务登记与受限目录发布入口
+
+平台 `POST /api/v1/identity/platform/service-audiences` 接收 service/audience，要求 platform:client:manage 和近期认证，目录锁→平台账号复查→唯一绑定检查→写入与审计同事务。相同绑定可重复确认，不一致返回409；不能覆盖既有服务/audience 或维护 identity-service 保留绑定。此登记只连接业务权限目录和 audience，不授予账号权限。
+
+目录发布使用现有授权服务器签发的项目级机器 access token：当前及签发 audience 仅 identity-service、无租户，scope 为 catalog.publish:目标服务。独立 Bearer 链从官方 Authorization 记录校验有效性、撤销及当前客户端范围；事务写入前再次校验，失效拒绝。不使用用户 Token，不授目录发布账号业务访问权。
+
+`GET /internal/v1/permission-catalogs/version` 返回 catalog_version，只有有效发布身份可访问。`POST /internal/v1/permission-catalogs:sync` 接收 service/release_version/checksum/content/catalog_version；content 是制品中的原始 UTF-8 YAML，checksum 为 SHA-256。字段和同步语义见权限设计；409 后人工核对目录再重试，不自动覆盖。内部入口不发布到公网 Gateway。
+
+
+## 修订记录
+
+- 2026-10-27，D-20261027-02：落实已确认计划的固定提供方配置、标准协议、显式绑定与本地会话转换；不扩展在线提供方管理。
+
+- 2026-10-27，D-20261027-03：统一混合项目目录及接入路径；业务配置扩展、管理页和发布恢复合同按计划 05 修正；实际验收见计划 05。

@@ -1,0 +1,17 @@
+{
+  "artifact": "org.springframework.security:spring-security-oauth2-authorization-server:7.0.8",
+  "resources": [
+    {
+      "resource": "org/springframework/security/oauth2/server/authorization/client/oauth2-registered-client-schema.sql",
+      "sha256": "79d9660b6ad4f27ec749a56685b3ffa9dfaacec9afdbc256919d3f94e277a0f5"
+    },
+    {
+      "resource": "org/springframework/security/oauth2/server/authorization/oauth2-authorization-schema.sql",
+      "sha256": "e992ed1ec29405414c635c596d1cd8224bff588d7119d01fdaf7d5e051fb8544"
+    },
+    {
+      "resource": "org/springframework/security/oauth2/server/authorization/oauth2-authorization-consent-schema.sql",
+      "sha256": "0b551f67c3867c5845560a8e095ce4729ffe4e7e2e061e8636da379d25aeba71"
+    }
+  ]
+}

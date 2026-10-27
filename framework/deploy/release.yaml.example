@@ -1,0 +1,23 @@
+# 项目构建后填写并保存为 deploy/release.yaml；不是默认启用的发行。
+# files 是实际要部署材料的 SHA-256；环境秘密只引用绝对路径，不放进本文件。
+project: sample-project
+environment: test
+id: sample-0.1.0
+compose_files: [deploy/compose.yaml, deploy/compose.server.yaml]
+images:
+  identity-service: registry.example.com/platform/identity-service@sha256:replace
+  api-gateway: registry.example.com/platform/api-gateway@sha256:replace
+files:
+  deploy/compose.yaml: replace-with-sha256
+  deploy/compose.server.yaml: replace-with-sha256
+  infra/resources.yaml: replace-with-sha256
+  # 还需登记本次全部 SQL/Alembic 文件、权限清单、Nacos 源和 Nginx 配置。
+migrations:
+  - target: identity-db
+    tool: flyway
+    path: artifacts/identity-migrations
+compatible_schema_from: []
+rollback_window_hours: 24  # 示例；项目负责人确认实际窗口，不是框架固定值。
+compatible_previous_versions: []  # 首次发行为空；升级列出实际验证过的旧发行 id。
+owner: replace-with-release-owner
+approval_reference: replace-with-confirmation-record

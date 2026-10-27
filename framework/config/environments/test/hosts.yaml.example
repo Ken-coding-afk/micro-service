@@ -1,0 +1,58 @@
+# Linux/WSL 管理机执行。示例地址不可直接使用；修改后保存为 hosts.yaml。
+all:
+  vars:
+    project_code: sample-project
+    app_env: test
+    project_source: /srv/sample-project/test
+    edge_server_name: app.example.com
+    edge_gateway_upstreams: ["10.20.0.11:8080"]
+    edge_certificate_dir: /etc/sample-project/test/tls
+    edge_config_file: /srv/sample-project/test/.local/edge/default.conf
+    project_root: /srv/sample-project/test
+    tools_python: /srv/sample-project/test/.venv/bin/python
+    ansible_python_interpreter: "{{ tools_python }}"
+    release_file: /srv/sample-project/test/deploy/release.yaml
+    environment_file: /etc/sample-project/test/environment.env
+    compose_env_file: /etc/sample-project/test/compose.env
+    control_state_dir: /var/lib/framework-releases
+    # 每次操作使用新的 ID，失败/中断后先 reconcile，不能通过换 ID 抢锁。
+    operation_id: test-20261027-001
+    backup_reference: replace-with-verified-backup-record
+    maintenance_window: true
+    infrastructure_maintenance_approved: false
+    migration_pg_host: 10.20.0.10
+    migration_pg_port: 5432
+    migration_container_pg_host: 10.20.0.10
+    migration_container_pg_port: 5432
+    identity_control_origin: https://identity.internal.example.com
+    bootstrap_identity: false
+    smoke_url: https://app.example.com/identity/login
+    permission_publications: {}
+    # sample-java-service:
+    #   manifest: services/sample-java-service/src/main/resources/permissions.yaml
+    #   client_id: sample-java-permission-publisher
+    #   secret_file: /etc/sample-project/test/secrets/java-publisher.password
+  children:
+    release_controller:
+      hosts:
+        control:
+          ansible_connection: local
+    resource_controller:
+      hosts:
+        control: {}
+    migration_controller:
+      hosts:
+        control: {}
+    infra:
+      hosts:
+        infra-01:
+          ansible_host: 10.20.0.10
+          infra_services: [postgres, redis, nacos]
+    apps:
+      hosts:
+        app-01:
+          ansible_host: 10.20.0.11
+          app_services: [identity-service, api-gateway]
+        app-02:
+          ansible_host: 10.20.0.12
+          app_services: [nginx]  # 首次仅基础入口；登记业务凭据后改为 [sample-java-service, sample-python-service, nginx]

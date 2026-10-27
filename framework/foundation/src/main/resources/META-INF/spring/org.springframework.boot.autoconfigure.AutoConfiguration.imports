@@ -1,0 +1,6 @@
+com.ken.platform.foundation.config.PlatformAutoConfiguration
+com.ken.platform.foundation.config.PlatformNacosAutoConfiguration
+com.ken.platform.foundation.config.PlatformWebAutoConfiguration
+com.ken.platform.foundation.config.PlatformDataAutoConfiguration
+com.ken.platform.foundation.config.PlatformMybatisAutoConfiguration
+com.ken.platform.foundation.config.PlatformResourceSecurityAutoConfiguration

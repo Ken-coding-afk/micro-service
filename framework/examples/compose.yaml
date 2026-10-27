@@ -1,0 +1,39 @@
+# 从框架发行材料复用基础应用 Compose；此文件仅增加示例服务。
+services:
+  sample-java-service:
+    image: ${SAMPLE_JAVA_IMAGE:-local/sample-java:0.1.0}
+    profiles: [java]
+    env_file: ${RUNTIME_DIR}/sample-java-service.env
+    volumes:
+      - ${RUNTIME_DIR}/sample-java-service-secrets:/run/secrets:ro
+    networks: [application]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      identity-service: {condition: service_healthy}
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8082/actuator/health/readiness]
+      interval: 5s
+      timeout: 3s
+      start_period: 60s
+      retries: 20
+
+  sample-python-service:
+    image: ${SAMPLE_PYTHON_IMAGE:-local/sample-python:0.1.0}
+    profiles: [python]
+    env_file: ${RUNTIME_DIR}/sample-python-service.env
+    volumes:
+      - ${RUNTIME_DIR}/sample-python-service-secrets:/run/secrets:ro
+    networks: [application]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      identity-service: {condition: service_healthy}
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8083/actuator/health/readiness', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 20
