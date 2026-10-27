@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
-from sample_service.main import BusinessSettings
+
+from sample_service.config import BusinessSettings
 
 
 def test_business_model_owns_its_limits_and_rejects_invalid_or_unknown_values():

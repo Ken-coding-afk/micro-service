@@ -1,7 +1,8 @@
 package com.example.sample.dal;
 
+import com.example.sample.model.Item;
+import com.example.sample.model.ItemPage;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -23,21 +24,20 @@ public class ItemRepository {
         name);
   }
 
-  public Map<String, Object> list(UUID tenant, UUID owner, boolean own, int page, int size) {
+  public ItemPage list(UUID tenant, UUID owner, boolean own, int page, int size) {
     String predicate = "tenant_id=? AND (NOT ? OR owner_user_id=?)";
     Long count =
         jdbc.queryForObject(
             "SELECT count(*) FROM sample_item WHERE " + predicate, Long.class, tenant, own, owner);
-    List<Map<String, Object>> items =
+    List<Item> items =
         jdbc.query(
             "SELECT id,name FROM sample_item WHERE " + predicate + " ORDER BY id LIMIT ? OFFSET ?",
-            (row, n) ->
-                Map.<String, Object>of("id", row.getString("id"), "name", row.getString("name")),
+            (row, n) -> new Item(row.getString("id"), row.getString("name")),
             tenant,
             own,
             owner,
             size,
             ((long) page - 1) * size);
-    return Map.of("items", items, "total", count, "page", page, "page_size", size);
+    return new ItemPage(items, java.util.Objects.requireNonNull(count), page, size);
   }
 }

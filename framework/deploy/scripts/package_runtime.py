@@ -8,14 +8,26 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = ROOT.parent
+PROJECT_DOCS = (
+    "docs/standards/01-项目编码规范.md",
+    "docs/standards/02-Java编码规范.md",
+    "docs/standards/03-Python编码规范.md",
+    "docs/guides/04-新项目开发与规范升级指南.md",
+)
+PROJECT_ENTRIES = ("AGENTS.md", "CLAUDE.md", ".cursor/rules/project.mdc")
 EXCLUDED = {
-    "tests",
     "target",
     "__pycache__",
     ".venv",
     ".local",
     "node_modules",
     "wheels",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
 }
 
 
@@ -28,8 +40,14 @@ def package(output: Path, wheel: Path, images: dict[str, str]) -> dict:
         ROOT / "api-gateway/target/api-gateway.jar",
         wheel,
     ]
-    if not all(path.is_file() for path in required):
-        raise ValueError("缺少构建制品")
+    development_files = {
+        **{name: REPOSITORY_ROOT / name for name in PROJECT_DOCS},
+        **{name: REPOSITORY_ROOT / name for name in (".editorconfig", ".gitattributes")},
+        **{name: ROOT / "examples" / name for name in PROJECT_ENTRIES},
+        "README.md": ROOT / "examples/README.md",
+    }
+    if not all(path.is_file() for path in [*required, *development_files.values()]):
+        raise ValueError("缺少构建制品或开发材料")
     if not {"identity-service", "api-gateway"}.issubset(images):
         raise ValueError("镜像清单缺少基础服务")
     output.mkdir(parents=True)
@@ -45,21 +63,28 @@ def package(output: Path, wheel: Path, images: dict[str, str]) -> dict:
             if (
                 source.is_file()
                 and not EXCLUDED.intersection(relative.parts)
+                and not any(part.endswith(".egg-info") for part in relative.parts)
+                and (
+                    "tests" not in relative.parts or relative.parts[:2] == ("examples", "services")
+                )
                 and source.suffix != ".pyc"
             ):
                 # 发行目录不扫描任意运行环境文件。
                 if source.name.endswith((".password", ".pem", ".key", ".env")):
                     raise ValueError("发行源中发现运行秘密文件，拒绝打包")
                 name = relative.as_posix()
+                if (
+                    name.startswith("examples/")
+                    and name.removeprefix("examples/") in PROJECT_ENTRIES
+                ):
+                    continue  # 协作入口只放项目根，避免 examples 内产生第二个规则作用域。
                 if name.startswith(("examples/services/", "examples/web/")):
                     name = name.removeprefix("examples/")
                 copy(source, name)
     for name in ("pyproject.toml", "uv.lock", "mvnw", "mvnw.cmd"):
         copy(ROOT / name, name)
-    # 独立项目与框架仓库采用一致的行尾，避免 Windows 首次构建被格式检查阻塞。
-    (output / ".gitattributes").write_text(
-        "* text=auto eol=lf\n*.cmd text eol=crlf\n", encoding="utf-8"
-    )
+    for name, source in development_files.items():
+        copy(source, name)
     copy(ROOT / "examples/.gitignore", ".gitignore")
     copy(ROOT / "pom.xml", "artifacts/java/platform-parent-1.0.0-rc.3.pom")
     copy(ROOT / "foundation/pom.xml", "artifacts/java/foundation-1.0.0-rc.3.pom")

@@ -2,11 +2,13 @@
 
 本目录是一个混合项目：services 同时包含 Java 和 Python 服务，两者各自保存资源，使用统一账号、权限、租户事务与发现调用。没有聊天、算法任务或 Agent 运行时。基础服务镜像不包含这里的业务代码。
 
+开发基线包含 docs/standards 三份规范、docs/guides/04 开发升级指南、根协作入口和两语言测试。新项目从根 README 开始；源码仓库对应文档位于仓库 docs，发行包中与项目同目录。
+
 当前候选使用 Java 1.0.0-rc.3 / Python 1.0.0rc3。基础服务镜像与 SDK 按发行清单锁定；本地验证与真实环境未验证项分别记录在精简实施计划。
 
 ## 1. 新项目取得什么
 
-框架发行目录包含：services（两个服务）、web、config、infra、deploy、examples、.gitignore、根 pyproject.toml/uv.lock、Maven wrapper、artifacts/java、artifacts/python、artifacts/identity-migrations 与 release-manifest.json、framework-baseline.json。框架父 POM/基础库和 Python SDK 通过制品接入；不复制 foundation、identity-service、api-gateway、python-sdk 源码。
+框架发行目录包含：README.md、AGENTS.md、CLAUDE.md、.cursor/rules/project.mdc、.editorconfig、.gitattributes、docs（规范与开发升级指南）、services（两个服务）、web、config、infra、deploy、examples、.gitignore、根 pyproject.toml/uv.lock、Maven wrapper、artifacts/java、artifacts/python、artifacts/identity-migrations 与 release-manifest.json、framework-baseline.json。框架父 POM/基础库和 Python SDK 通过制品接入；不复制 foundation、identity-service、api-gateway、python-sdk 源码。
 
 先在新目录展开整个发行包，按下面步骤跑通一个混合项目。框架源码中的 examples/services 和 examples/web 已分别映射为发行项目根的 services 和 web，不需要重新复制。两个服务共用本项目的身份服务、网关、环境及发布材料。跑通后把服务改为自己的领域名称，同步启动声明、权限清单、资源、环境绑定、Nacos 文件/路由；不同项目不共享身份库。
 
