@@ -1,0 +1,89 @@
+name: Source checks
+'on':
+  push:
+    paths-ignore:
+    - docs/**
+    - '**/*.md'
+    - .cursor/**
+    - .codegraph/**
+  pull_request:
+    paths-ignore:
+    - docs/**
+    - '**/*.md'
+    - .cursor/**
+    - .codegraph/**
+  workflow_dispatch: null
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  java:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+    - &id001
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      with:
+        persist-credentials: false
+        submodules: recursive
+    - uses: actions/setup-java@816722acf8fd27c9d1e9ae6ee6085da07e0d44c1
+      with:
+        distribution: temurin
+        java-version: '21'
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 24.13.0
+    - run: npm install --global pnpm@11.12.0
+    - run: 'chmod +x mvnw
+
+        ./mvnw -B test -Dtest=ApiErrorsTest,DeveloperContextTest,ItemDeadlineTest,TypedServiceCallTest,ServiceCallContractTest,CurrentPrincipalTest,NativeComponentSettingsTest,ItemControllerTest,PasswordCredentialsTest,AuditDetailSanitizerTest,BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest,PlatformMetricsAutoConfigurationTest,MonitoringScopeUpgradeTest,ManagementAuditsTest
+        -Dsurefire.failIfNoSpecifiedTests=false'
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - *id001
+    - &id002
+      uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
+      with:
+        version: 0.13.5
+        python-version: '3.12'
+    - run: "uv sync --frozen\nuv run --frozen ruff check scripts\nuv sync --frozen --all-extras --project sdk/python\n\
+        uv run --frozen --all-extras --project sdk/python ruff check sdk/python/src\nuv run --frozen --all-extras\
+        \ --project sdk/python mypy --config-file sdk/python/pyproject.toml sdk/python/src\nuv run --frozen --all-extras\
+        \ --project sdk/python pytest -c sdk/python/pyproject.toml --confcutdir=sdk/python sdk/python/tests/test_http.py\
+        \ sdk/python/tests/test_typed_http.py sdk/python/tests/test_circuit.py sdk/python/tests/test_config.py sdk/python/tests/test_context_web.py\n\
+        \nuv run --frozen --all-extras --project sdk/python pytest -c sdk/python/pyproject.toml --confcutdir=sdk/python\
+        \ sdk/python/tests/test_observation.py sdk/python/tests/test_api_errors.py sdk/python/tests/test_developer_context.py\
+        \ sdk/python/tests/test_database_readiness.py\n\nfor directory in services/*; do\n  if [ -f \"$directory/pyproject.toml\"\
+        \ ] && [ -f \"$directory/tests/test_items.py\" ]; then\n    uv sync --frozen --project \"$directory\"\n\
+        \    uv run --frozen --project \"$directory\" ruff check \"$directory/src\"\n    uv run --frozen --project\
+        \ \"$directory\" pytest -c \"$directory/pyproject.toml\" --confcutdir=\"$directory\" \"$directory/tests/test_items.py\"\
+        \ \"$directory/tests/test_business_config.py\" \"$directory/tests/test_application.py\" || exit 1\n  fi\n\
+        done"
+  admin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - *id001
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 24.13.0
+    - run: 'npm install --global pnpm@11.12.0
+
+        pnpm --dir services/identity-service/admin install --frozen-lockfile
+
+        pnpm --dir services/identity-service/admin verify:build'
+    - run: pnpm --dir services/identity-service/admin exec vitest run tests/monitoring-page.test.ts tests/admin-context.test.ts
+  maintenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - *id001
+    - *id002
+    - run: 'uv sync --frozen
+
+        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_test_execution.py
+        tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py'

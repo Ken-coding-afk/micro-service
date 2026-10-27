@@ -5,19 +5,42 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
-    - ansible.builtin.include_tasks: tasks/preflight.yaml
-      vars:
-        release_phase: infra
-    - ansible.builtin.include_tasks: tasks/network.yaml
-    - ansible.builtin.assert:
-        that:
-          - infra_services | length > 0
-          - infra_services | difference(['postgres','redis','nacos','rabbitmq']) | length == 0
-          - infrastructure_maintenance_approved | default(false) | bool
-    - name: 使用现有固定组件入口，不更新应用
-      ansible.builtin.command:
-        argv: "{{ [tools_python, project_root + '/scripts/infra/up.py', '--env-file', environment_file, '--compose-file', project_root + '/infra/compose.yaml'] + (infra_services | map('regex_replace', '^', '--service=') | list) }}"
-      no_log: true
-      changed_when: true
-    - ansible.builtin.include_tasks: tasks/finish.yaml
+  - ansible.builtin.include_tasks: tasks/preflight.yaml
+    vars:
+      release_phase: infra
+  - ansible.builtin.include_tasks: tasks/network.yaml
+  - ansible.builtin.assert:
+      that:
+      - infra_services | length > 0
+      - infra_services | difference(['postgres','redis','nacos','rabbitmq','prometheus','grafana'])
+        | length == 0
+      - infrastructure_maintenance_approved | default(false) | bool
+  - name: 仅收集监控所需的部署绑定，不复制 inventory 中的秘密
+    ansible.builtin.set_fact:
+      monitoring_hosts: '{{ monitoring_hosts | default({}) | combine({item: {''ansible_host'':
+        hostvars[item].ansible_host, ''app_services'': hostvars[item].app_services,
+        ''metrics_ports'': hostvars[item].metrics_ports | default({})}}) }}'
+    loop: '{{ groups[''apps''] }}'
+    when: '''prometheus'' in infra_services or ''grafana'' in infra_services'
+  - ansible.builtin.file:
+      path: '{{ project_root }}/.local'
+      state: directory
+      mode: '0700'
+    when: monitoring_hosts is defined
+  - name: 保存本次已选择服务的采集输入
+    ansible.builtin.copy:
+      dest: '{{ project_root }}/.local/monitoring-inventory.json'
+      content: '{{ {''all'': {''children'': {''apps'': {''hosts'': monitoring_hosts}}}}
+        | to_json }}'
+      mode: '0600'
+    when: monitoring_hosts is defined
+  - name: 使用现有固定组件入口，不更新应用
+    ansible.builtin.command:
+      argv: '{{ [tools_python, project_root + ''/scripts/infra/up.py'', ''--env-file'',
+        environment_file, ''--compose-file'', project_root + ''/infra/compose.yaml'',
+        ''--inventory'', project_root + ''/.local/monitoring-inventory.json''] + (infra_services
+        | map(''regex_replace'', ''^'', ''--service='') | list) }}'
+    no_log: true
+    changed_when: true
+  - ansible.builtin.include_tasks: tasks/finish.yaml
 - ansible.builtin.import_playbook: controller-finish.yaml

@@ -50,7 +50,7 @@ public class GatewayTrafficConfiguration {
   }
 
   @Bean
-  GatewayRequestBudget platformGatewayBudget() {
-    return new GatewayRequestBudget();
+  GatewayRequestBudget platformGatewayBudget(io.micrometer.core.instrument.MeterRegistry metrics) {
+    return new GatewayRequestBudget(metrics);
   }
 }

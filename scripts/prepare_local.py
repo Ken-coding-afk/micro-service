@@ -212,3 +212,49 @@ def prepare(env_path: Path, images: dict, project_root: Path | None = None, init
         },
     )
     return runtime
+
+
+def metrics_binding(language: str, port: int, enabled: bool, host: str = "0.0.0.0") -> dict:
+    if not enabled:
+        return {}
+    if not 1 <= port <= 64535:
+        raise ValueError("监控端口按服务端口 +1000 分配，服务端口须不大于 64535")
+    if language == "python":
+        return {"METRICS_BIND_HOST": host, "METRICS_PORT": port + 1000}
+    return {
+        "MANAGEMENT_SERVER_ADDRESS": host,
+        "MANAGEMENT_SERVER_PORT": port + 1000,
+        "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE": "health,prometheus",
+        "MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILES_HISTOGRAM_HTTP_SERVER_REQUESTS": "true",
+    }
+
+
+def monitoring_inputs(root: Path, config: dict, env: dict, host: str) -> Path:
+    """由当前选择的服务生成抓取目标；不启动组件，不写第二份服务登记。"""
+    target = root / ".local/runtime/monitoring-targets.json"
+    targets = []
+    if "monitoring" in env.get("COMPOSE_PROFILES", "").split(","):
+        for name, port in (("identity-service", 8081), ("api-gateway", 8080)):
+            targets.append(
+                {
+                    "targets": [f"{name}:{port + 1000}"],
+                    "labels": {"service": name, "__metrics_path__": "/actuator/prometheus"},
+                }
+            )
+        for name, record in config["services"].items():
+            port = int(record["port"])
+            metrics_binding(record["language"], port, True)
+            targets.append(
+                {
+                    "targets": [f"{host}:{port + 1000}"],
+                    "labels": {
+                        "service": name,
+                        "__metrics_path__": "/metrics"
+                        if record["language"] == "python"
+                        else "/actuator/prometheus",
+                    },
+                }
+            )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(targets, indent=2), encoding="utf-8")
+    return target

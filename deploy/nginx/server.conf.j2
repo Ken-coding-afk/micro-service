@@ -16,6 +16,7 @@ server {
 }
 server {
     listen 8443 ssl;
+    add_header Strict-Transport-Security "max-age=31536000" always;
     server_name {{ edge_server_name }};
     server_tokens off;
     ssl_certificate /etc/nginx/tls/current/fullchain.pem;
@@ -26,6 +27,8 @@ server {
     location / {
         try_files $uri $uri/ /index.html;
         add_header Cache-Control "no-store" always;
+        # location 中有 add_header 时不会继承 server 的响应头。
+        add_header Strict-Transport-Security "max-age=31536000" always;
     }
     location ~ ^/(internal/|actuator/) { return 404; }
     location ~ ^/(api/|identity/|oauth2/|login/oauth2/|\.well-known/|bff/|connect/|userinfo$) {

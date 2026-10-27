@@ -1,9 +1,28 @@
 """本地基础服务的状态、日志和停止，不删除数据卷。"""
 
 import argparse
+from pathlib import Path
 
-from common import FRAMEWORK
-from local import compose
+from common import FRAMEWORK, run
+
+
+def compose(root: Path, *args: str) -> None:
+    run(
+        [
+            "docker",
+            "compose",
+            "--project-directory",
+            root,
+            "--env-file",
+            root / ".local/runtime/compose.env",
+            "-f",
+            root / "deploy/compose.yaml",
+            "-f",
+            root / ".local/runtime/host.compose.yaml",
+            *args,
+        ],
+        cwd=root,
+    )
 
 
 def main() -> None:

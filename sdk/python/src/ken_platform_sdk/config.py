@@ -26,6 +26,13 @@ from pydantic import (
 from .discovery import ServiceInstance
 
 
+class CircuitParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    enabled: bool = False
+    failure_threshold: int = Field(default=5, gt=0, le=1000)
+    recovery_timeout_seconds: int = Field(default=30, gt=0, le=3600)
+
+
 class HttpParameters(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     connect_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
@@ -33,6 +40,20 @@ class HttpParameters(BaseModel):
     get_retry_extra: Literal[0, 1] = 1
     max_connections: int = Field(default=64, gt=0)
     max_keepalive_connections: int = Field(default=32, gt=0)
+    circuit_breakers: Mapping[str, CircuitParameters] = Field(
+        default_factory=dict, validate_default=True
+    )
+
+    @field_validator("circuit_breakers")
+    @classmethod
+    def valid_circuits(cls, value):
+        if len(value) > 64 or any(not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", key) for key in value):
+            raise ValueError("熔断规则必须使用有限逻辑服务名")
+        return MappingProxyType(dict(value))
+
+    @field_serializer("circuit_breakers")
+    def serialize_circuits(self, value):
+        return {key: rule.model_dump() for key, rule in value.items()}
 
     @model_validator(mode="after")
     def bounded_pool(self) -> Self:
@@ -204,6 +225,8 @@ class PlatformSettings(BaseModel):
     service_advertise_port: int = Field(gt=0, le=65535)
     role: Literal["api", "worker"] = "api"
     service_scheme: Literal["http", "https"] = "http"
+    metrics_bind_host: str = "127.0.0.1"
+    metrics_port: int = Field(default=0, ge=0, le=65535)
     nacos_server_addr: str
     nacos_namespace: str
     nacos_runtime_user: str
@@ -219,6 +242,8 @@ class PlatformSettings(BaseModel):
 
     @model_validator(mode="after")
     def matching_namespace(self) -> Self:
+        if self.metrics_port and self.metrics_port == self.service_bind_port:
+            raise ValueError("指标端口必须独立于业务端口")
         if self.nacos_namespace != f"{self.project_code}-{self.app_env}":
             raise ValueError("namespace 与项目/环境不一致")
         ServiceInstance(

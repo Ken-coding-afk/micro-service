@@ -88,6 +88,14 @@ for _key in (
     "INFRA_NETWORK",
     "INFRA_BIND_HOST",
     "TRUSTED_PROXY_CIDRS",
+    "COMPOSE_PROFILES",
+    "MONITORING_TARGETS_FILE",
+    "MONITORING_PROXY_CIDRS",
+    "GRAFANA_INTERNAL_ORIGIN",
+    "GRAFANA_BIND_HOST",
+    "GRAFANA_PUBLISHED_PORT",
+    "PROMETHEUS_IMAGE",
+    "GRAFANA_IMAGE",
 ):
     ENV_FIELDS[_key] = {"category": "binding", "required": "no"}
 for _key in ("NACOS_PUBLISH_PASSWORD", "NACOS_RUNTIME_PASSWORD"):
@@ -150,9 +158,7 @@ class EnvFile:
 def parse_env_file(path: Path) -> EnvFile:
     """解析 KEY=VALUE 行;忽略空行与 # 注释;不展开变量。"""
     values: dict[str, str] = {}
-    for number, raw in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -178,6 +184,34 @@ def validate_env(env: EnvFile) -> list[str]:
         if meta["required"] == "yes" and not env.values.get(key):
             issues.append(f"缺少必填环境字段: {key}")
     values = env.values
+    profiles = {p.strip() for p in values.get("COMPOSE_PROFILES", "").split(",") if p.strip()}
+    if any(p != p.strip() for p in values.get("COMPOSE_PROFILES", "").split(",")):
+        issues.append("COMPOSE_PROFILES 不能包含空白")
+    if profiles - {"mq", "monitoring"}:
+        issues.append("COMPOSE_PROFILES 只支持 mq,monitoring")
+    if "monitoring" in profiles:
+        for image_key in ("PROMETHEUS_IMAGE", "GRAFANA_IMAGE"):
+            if not re.fullmatch(
+                r"[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}", values.get(image_key, "")
+            ):
+                issues.append(image_key + " 必须指定核实后的镜像摘要")
+        try:
+            networks = [
+                ipaddress.ip_network(v.strip(), strict=False)
+                for v in values.get("MONITORING_PROXY_CIDRS", "").split(",")
+                if v.strip()
+            ]
+            if not networks or any(
+                n.prefixlen != n.max_prefixlen or not n.is_private for n in networks
+            ):
+                raise ValueError()
+            address = ipaddress.ip_address(values.get("GRAFANA_BIND_HOST", "127.0.0.1"))
+            if address.is_unspecified or not address.is_private:
+                raise ValueError()
+        except ValueError:
+            issues.append(
+                "监控须显式指定可信网关 MONITORING_PROXY_CIDRS，Grafana 只绑定 loopback/私网"
+            )
     app_env = values.get("APP_ENV")
     if app_env not in ("local", "test", "prod"):
         issues.append("APP_ENV 必须为 local/test/prod")
@@ -187,9 +221,7 @@ def validate_env(env: EnvFile) -> list[str]:
             if address.is_unspecified or address.is_multicast or not address.is_private:
                 raise ValueError("基础组件仅允许绑定明确内网地址")
         except ValueError:
-            issues.append(
-                "INFRA_BIND_HOST 必须为明确内网或 loopback IP，不能绑定所有网卡"
-            )
+            issues.append("INFRA_BIND_HOST 必须为明确内网或 loopback IP，不能绑定所有网卡")
     project = values.get("PROJECT_CODE", "")
     if not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", project):
         issues.append("PROJECT_CODE 必须为小写字母数字及分隔连字符")
@@ -217,17 +249,11 @@ def validate_env(env: EnvFile) -> list[str]:
         "RABBIT_MGMT_PORT",
         *PUBLISHED_PORTS,
     ):
-        if key in values and (
-            not values[key].isdigit() or not 1 <= int(values[key]) <= 65535
-        ):
+        if key in values and (not values[key].isdigit() or not 1 <= int(values[key]) <= 65535):
             issues.append(f"端口超出合法范围: {key}")
     api_port = values.get("NACOS_PUBLISHED_PORT", "8848")
     grpc_port = values.get("NACOS_GRPC_PUBLISHED_PORT", "9848")
-    if (
-        api_port.isdigit()
-        and grpc_port.isdigit()
-        and int(grpc_port) != int(api_port) + 1000
-    ):
+    if api_port.isdigit() and grpc_port.isdigit() and int(grpc_port) != int(api_port) + 1000:
         issues.append("Nacos 宿主 gRPC 端口必须等于 API 端口 + 1000")
     for key in ("PUBLIC_ORIGIN", "IDENTITY_INTERNAL_ORIGIN", "NACOS_CONSOLE_ADDR"):
         value = values.get(key, "")
@@ -243,10 +269,7 @@ def validate_env(env: EnvFile) -> list[str]:
         elif parsed.scheme != "https" and not (
             app_env == "local"
             and parsed.scheme == "http"
-            and (
-                key != "PUBLIC_ORIGIN"
-                or parsed.hostname in ("localhost", "127.0.0.1", "::1")
-            )
+            and (key != "PUBLIC_ORIGIN" or parsed.hostname in ("localhost", "127.0.0.1", "::1"))
         ):
             issues.append(f"来源地址必须使用受信任 HTTPS: {key}")
     for key in ("PG_MODE", "REDIS_MODE", "NACOS_MODE", "RABBIT_MODE"):
@@ -316,9 +339,7 @@ def validate_nacos_source(source_dir: Path) -> list[str]:
         shared = yaml.safe_load(shared_path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError:
         return ["共享配置 YAML 不合法"]
-    if not isinstance(shared, dict) or not isinstance(
-        shared.get("allow_override", []), list
-    ):
+    if not isinstance(shared, dict) or not isinstance(shared.get("allow_override", []), list):
         return ["共享配置必须为 mapping，allow_override 必须为字段名数组"]
     shared_keys = _flatten(shared) - {"allow_override"}
     override_list = shared.get("allow_override", [])
@@ -342,9 +363,7 @@ def validate_nacos_source(source_dir: Path) -> list[str]:
             issues += _check_forbidden(doc, path.name)
             for key in _flatten(doc):
                 if key in shared_keys and key not in overridable:
-                    issues.append(
-                        f"{path.name}: 覆盖了共享配置未声明 allow_override 的键 {key}"
-                    )
+                    issues.append(f"{path.name}: 覆盖了共享配置未声明 allow_override 的键 {key}")
         else:
             issues.append(f"不允许的 Data ID 文件: {path.name}")
     try:
@@ -362,9 +381,7 @@ def _check_forbidden(doc: dict, filename: str) -> list[str]:
     except ImportError:
         from components import component_issues
     issues += component_issues(doc, filename)
-    if "business" in doc and (
-        filename == SHARED_DATA_ID or not isinstance(doc["business"], dict)
-    ):
+    if "business" in doc and (filename == SHARED_DATA_ID or not isinstance(doc["business"], dict)):
         issues.append(f"{filename}: business 必须是服务自己声明的 mapping")
 
     def business_keys(value, depth=0):
@@ -373,9 +390,7 @@ def _check_forbidden(doc: dict, filename: str) -> list[str]:
             return
         if isinstance(value, dict):
             for name, child in value.items():
-                if not isinstance(name, str) or not re.fullmatch(
-                    r"[a-z][a-z0-9_]*", name
-                ):
+                if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
                     issues.append(f"{filename}: 业务配置字段必须为小写标识符")
                     continue
                 if name.upper() in NACOS_FORBIDDEN_KEYS or re.search(
@@ -402,6 +417,10 @@ def _check_forbidden(doc: dict, filename: str) -> list[str]:
             issues.append(f"{filename}: 秘密字段禁止进入 Nacos: {key}")
         elif (
             key not in NACOS_FIELDS
+            and not re.fullmatch(
+                r"http\.circuit_breakers\.[a-z][a-z0-9-]{0,62}\.(enabled|failure_threshold|recovery_timeout_seconds)",
+                key,
+            )
             and key != "business"
             and not key.startswith("business.")
         ):
@@ -424,10 +443,7 @@ def _check_identity_brand(doc: dict, filename: str) -> list[str]:
         or len(name) > 128
         or name
         and name.isspace()
-        or any(
-            ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF
-            for c in name
-        )
+        or any(ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF for c in name)
         or "<" in name
         or ">" in name
         or not isinstance(logo, str)
@@ -455,8 +471,7 @@ def _check_identity_brand(doc: dict, filename: str) -> list[str]:
                 or path.startswith("//")
                 or "\\" in path
                 or any(
-                    ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF
-                    for c in path
+                    ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF for c in path
                 )
                 or any(part in {".", ".."} for part in path.split("/"))
             ):
@@ -470,9 +485,7 @@ def resolve_pg_resource(resource: dict, values: dict[str, str]) -> dict[str, str
     """初始化与迁移共用同一物理资源解析；PG 标识符不允许静默截断。"""
     prefix = resolve_pg_prefix(values)
     result = {"database": f"{prefix}_{resource['name_binding']['database']}"}
-    result.update(
-        {key: f"{prefix}_{value}" for key, value in resource["roles"].items()}
-    )
+    result.update({key: f"{prefix}_{value}" for key, value in resource["roles"].items()})
     for value in result.values():
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", value):
             raise ValueError("资源名必须为最多 63 字节的小写 PG 标识符")

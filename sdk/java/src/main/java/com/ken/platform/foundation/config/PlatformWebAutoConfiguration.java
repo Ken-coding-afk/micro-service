@@ -28,7 +28,15 @@ public class PlatformWebAutoConfiguration {
   @Configuration(proxyBeanMethods = false)
   @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
   @ConditionalOnClass(name = {"jakarta.servlet.Filter", "tools.jackson.databind.json.JsonMapper"})
-  static class Servlet {
+  static class Servlet
+      implements org.springframework.web.servlet.config.annotation.WebMvcConfigurer {
+    @Override
+    public void extendHandlerExceptionResolvers(
+        java.util.List<org.springframework.web.servlet.HandlerExceptionResolver> resolvers) {
+      resolvers.add(
+          Math.min(1, resolvers.size()), new com.ken.platform.foundation.web.ServletApiErrors());
+    }
+
     @Bean
     @ConditionalOnMissingBean
     ServletRequestContextFilter platformRequestContextFilter(

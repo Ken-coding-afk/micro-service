@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import AdminApp from './app/AdminApp.vue'
+import MonitoringPage from './pages/platform/MonitoringPage.vue'
 import AccountPage from './pages/account/AccountPage.vue'
 import PlatformAccountsPage from './pages/platform/PlatformAccountsPage.vue'
 import UsersPage from './pages/users/UsersPage.vue'
@@ -15,6 +16,11 @@ import './app/style.css'
 const router = createRouter({
   history: createWebHistory('/identity/admin/'),
   routes: [
+    {
+      path: '/platform/monitoring',
+      component: MonitoringPage,
+      meta: { title: '服务监控', section: '平台管理' },
+    },
     {
       path: '/platform/clients',
       component: ClientsPage,

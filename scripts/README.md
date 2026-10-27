@@ -7,7 +7,7 @@
 | create.py / generation.py | 从固定提交创建混合项目 | 仅脚手架维护仓库 |
 | create_service.py | 从 services 样例创建独立服务 | 仅脚手架维护仓库 |
 | add_service.py | 预检后挂载固定业务 submodule 并登记 | 项目源码 |
-| init.py / local.py | 按当前服务集准备 local 资源与技术身份 | 项目源码 |
+| init.py | 按当前服务集准备 local 资源与技术身份 | 项目源码 |
 | dev.py / ide.py | 本地启动与共享 VS Code 配置 | 项目源码 |
 | compose.py | 本地基础服务状态、日志、停止 | 项目源码 |
 | build.py / package.py | 固定源码构建与部署包 | 项目源码 |

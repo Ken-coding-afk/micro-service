@@ -46,7 +46,9 @@ public class ItemController {
 
   @GetMapping("/peer")
   @RequirePermission(value = "java-item:read", scope = "java.items.read")
-  public ResponseEntity<byte[]> peer() throws Exception {
+  public ResponseEntity<
+          com.example.sample.controller.dto.ApiResponse<com.example.sample.model.ItemPage>>
+      peer() throws Exception {
     return service.peer();
   }
 }

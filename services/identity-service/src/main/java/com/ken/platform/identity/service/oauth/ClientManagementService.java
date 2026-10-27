@@ -322,6 +322,11 @@ public final class ClientManagementService {
 
   /** 仅维护用例可调用；与普通管理使用相同验证、协议构造与双表写入，不模拟登录主体。 */
   View initialize(String purpose, Definition proposed, String secret, String hash) {
+    return initialize(purpose, proposed, secret, hash, false);
+  }
+
+  View initialize(
+      String purpose, Definition proposed, String secret, String hash, boolean upgradeMonitoring) {
     if (!org.springframework.transaction.support.TransactionSynchronizationManager
         .isActualTransactionActive()) throw new IllegalStateException("客户端 bootstrap 必须在维护事务内执行");
     var value = rules.validate(proposed);
@@ -329,6 +334,33 @@ public final class ClientManagementService {
     var registered = store.bootstrapClient(purpose);
     var existing = store.byClientId(value.clientId());
     if (registered != null) {
+      if (upgradeMonitoring
+          && purpose.equals("PLATFORM_BFF")
+          && existing != null
+          && registered.id().equals(existing.client().getId())
+          && registered.digest().equals(bootstrapDigest(purpose, view(existing).definition()))
+          && credentials.matches(secret, existing.client().getClientSecret())
+          && monitoringScopeUpgrade(view(existing).definition(), value)) {
+        long version = existing.policy().version();
+        store.savePair(
+            protocol(
+                value, registered.id(), existing.client().getClientSecret(), existing.client()),
+            policy(value, version + 1),
+            version);
+        if (store.replaceBootstrapDigest(
+                purpose, registered.id(), registered.digest(), bootstrapDigest(purpose, value))
+            != 1) throw bootstrapConflict();
+        accounts.audit(
+            null,
+            "SERVICE",
+            null,
+            "identity.bootstrap.monitoring.enabled",
+            registered.id(),
+            UUID.randomUUID().toString(),
+            JSON.writeValueAsString(
+                Map.of("client_id", value.clientId(), "added_scope", "platform.monitoring")));
+        return new View(UUID.fromString(registered.id()), value, version + 1);
+      }
       if (existing == null
           || !existing.client().getId().equals(registered.id())
           || !registered.digest().equals(bootstrapDigest(purpose, value))
@@ -430,6 +462,27 @@ public final class ClientManagementService {
         registered.id(),
         CallContexts.current().requestId(),
         JSON.writeValueAsString(Map.of("tenant_id", tenant.toString())));
+  }
+
+  static boolean monitoringScopeUpgrade(Definition before, Definition after) {
+    if (before.scopes().contains("platform.monitoring")
+        || !after.scopes().contains("platform.monitoring")) return false;
+    var scopes = new java.util.HashSet<>(after.scopes());
+    scopes.remove("platform.monitoring");
+    return before.equals(
+        new Definition(
+            after.clientId(),
+            after.name(),
+            after.principalType(),
+            after.ownerTenantId(),
+            after.allowedTenantIds(),
+            after.audiences(),
+            Set.copyOf(scopes),
+            after.redirectUris(),
+            after.logoutUris(),
+            after.publicClient(),
+            after.firstParty(),
+            after.status()));
   }
 
   private static PlatformException bootstrapConflict() {

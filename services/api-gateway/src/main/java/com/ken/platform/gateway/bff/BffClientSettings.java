@@ -56,16 +56,7 @@ public final class BffClientSettings {
       var registrations = new EnumMap<BffNamespace, ClientRegistration>(BffNamespace.class);
       registrations.put(
           BffNamespace.PLATFORM,
-          registration(
-              BffNamespace.PLATFORM,
-              read(platform, 128),
-              Set.of(
-                  "profile",
-                  "platform.admins",
-                  "platform.tenants",
-                  "platform.clients",
-                  "platform.security",
-                  "platform.audit")));
+          registration(BffNamespace.PLATFORM, read(platform, 128), platformScopes(environment)));
       registrations.put(
           BffNamespace.TENANT,
           registration(
@@ -104,6 +95,21 @@ public final class BffClientSettings {
     } catch (Exception failure) {
       throw invalid();
     }
+  }
+
+  static Set<String> platformScopes(Environment environment) {
+    var scopes =
+        new HashSet<>(
+            Set.of(
+                "profile",
+                "platform.admins",
+                "platform.tenants",
+                "platform.clients",
+                "platform.security",
+                "platform.audit"));
+    if (java.util.Arrays.asList(environment.getProperty("COMPOSE_PROFILES", "").split(","))
+        .contains("monitoring")) scopes.add("platform.monitoring");
+    return Set.copyOf(scopes);
   }
 
   private ClientRegistration registration(

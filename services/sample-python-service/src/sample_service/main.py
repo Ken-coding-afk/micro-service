@@ -10,8 +10,9 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from ken_platform_sdk.config import PlatformSettings
-from ken_platform_sdk.db import database_loop_factory, tenant_transaction
+from ken_platform_sdk.db import DatabaseReadiness, database_loop_factory, tenant_transaction
 from ken_platform_sdk.lifecycle import PlatformRuntime
+from ken_platform_sdk.log_context import configure_logging
 from ken_platform_sdk.openapi import install_openapi
 from ken_platform_sdk.security import ResourceIdentitySettings, ResourceIntrospector
 from ken_platform_sdk.security_web import install_resource_security, resource_identity_readiness
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
         runtime.discovery, client, ResourceIdentitySettings.from_environment(os.environ)
     )
     engine = create_async_engine(database_url(), pool_pre_ping=True)
+    database = DatabaseReadiness(engine, os.environ["DB_USER"], os.environ["DB_NAME"])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
 
     @asynccontextmanager
@@ -41,6 +43,7 @@ def create_app() -> FastAPI:
             app.state.business = BusinessSettings.model_validate(
                 runtime.parameters.model_dump()["business"]
             )
+            await database.verify()
             await verify_database(engine)
             app.state.items = ItemService(
                 ItemRepository(), lambda: tenant_transaction(sessions), app.state.business
@@ -50,7 +53,7 @@ def create_app() -> FastAPI:
                 await runtime.watch(os.environ["PEER_SERVICE"])
 
         try:
-            await runtime.start(checks=[check])
+            await runtime.start(checks=[check], readiness_checks=[database.check])
             assert runtime.http is not None
             app.state.peer = PeerClient(runtime.http, os.environ.get("PEER_SERVICE"))
             yield
@@ -69,9 +72,10 @@ def create_app() -> FastAPI:
 
     @app.get("/actuator/health/readiness")
     async def ready() -> JSONResponse:
+        ready = await runtime.is_ready()
         return JSONResponse(
-            {"status": "UP" if runtime.ready else "DOWN"},
-            status_code=200 if runtime.ready else 503,
+            {"status": "UP" if ready else "DOWN"},
+            status_code=200 if ready else 503,
         )
 
     app.include_router(router)
@@ -87,11 +91,13 @@ def create_app() -> FastAPI:
 
 def main() -> None:
     settings = PlatformSettings.from_environment("sample-python-service")
+    configure_logging(settings.service_name)
     server = uvicorn.Server(
         uvicorn.Config(
             create_app(),
             host=settings.service_bind_host,
             port=settings.service_bind_port,
+            log_config=None,
         )
     )
     with asyncio.Runner(loop_factory=database_loop_factory) as runner:

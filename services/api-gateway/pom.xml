@@ -17,6 +17,7 @@
   <description>统一入口：显式路由、浏览器 BFF、入口安全与流式转发（WebFlux，无业务 DAL）</description>
 
   <dependencies>
+    <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
     <dependency>
       <groupId>com.ken.platform</groupId>
       <artifactId>java-sdk</artifactId>

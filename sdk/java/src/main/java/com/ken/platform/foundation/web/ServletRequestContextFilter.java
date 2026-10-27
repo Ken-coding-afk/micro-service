@@ -43,8 +43,15 @@ public final class ServletRequestContextFilter extends OncePerRequestFilter impl
       if (wrapped.getCause() instanceof PlatformException error) {
         writeError(response, context, error);
       } else {
+        if (ApiErrors.accepts(request.getRequestURI())) {
+          writeError(response, context, ApiErrors.classify(wrapped.getCause()));
+          return;
+        }
         throw wrapped;
       }
+    } catch (RuntimeException failure) {
+      if (!ApiErrors.accepts(request.getRequestURI())) throw failure;
+      writeError(response, context, ApiErrors.classify(failure));
     }
   }
 
@@ -56,6 +63,7 @@ public final class ServletRequestContextFilter extends OncePerRequestFilter impl
     }
     response.setStatus(error.status());
     response.setContentType("application/json");
+    response.setHeader("Cache-Control", "no-store");
     response.getOutputStream().write(RequestContexts.error(error, context));
   }
 

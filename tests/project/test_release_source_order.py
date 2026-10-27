@@ -10,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import build  # noqa: E402
+import package  # noqa: E402
 from common import write, write_yaml  # noqa: E402
 
 
@@ -71,6 +72,7 @@ def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_
         assert command[:3] == ["git", "fetch", "--no-tags"]
 
     monkeypatch.setattr(build, "run", boundary)
+    monkeypatch.setattr(package, "run", boundary)
     source = build.source_identity(root, strict=True)
     assert source["dirty"] is False
     assert len(calls) == 1
@@ -88,7 +90,7 @@ def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_
     )
     config = {"local": {"project": "release-project"}, "services": {}}
     with pytest.raises(ImageVerificationReached):
-        build.bundle(root, args, config, current)
+        package.bundle(root, args, config, current)
 
     write(policy, "owner: changed-owner\n")
     with pytest.raises(ValueError, match="源码已提交且干净"):
@@ -97,5 +99,5 @@ def test_policy_is_committed_before_build_and_later_changes_require_rebuild(tmp_
     changed = build.source_identity(root, strict=True)
     calls.clear()
     with pytest.raises(ValueError, match="构建记录与当前固定源码不一致"):
-        build.bundle(root, args, config, changed)
+        package.bundle(root, args, config, changed)
     assert calls == []  # 来源不匹配时不得拉取镜像。

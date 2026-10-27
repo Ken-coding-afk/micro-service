@@ -62,7 +62,7 @@ async function request(context, service, method = 'GET', suffix = '') {
 }
 
 (async () => {
-  const browser = await chromium.launch({headless: true, channel: 'chrome'});
+  const browser = await chromium.launch({headless: true});
   try {
     const alpha = await login(browser, 'alpha', 'writer');
     for (const service of services) {

@@ -4,7 +4,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 public record ItemPage(
-    List<Item> items, long total, int page, @JsonProperty("page_size") int pageSize) {
+    @JsonProperty(required = true) List<Item> items,
+    @JsonProperty(required = true) long total,
+    @JsonProperty(required = true) int page,
+    @JsonProperty(value = "page_size", required = true) int pageSize) {
   public ItemPage {
     items = List.copyOf(items);
   }

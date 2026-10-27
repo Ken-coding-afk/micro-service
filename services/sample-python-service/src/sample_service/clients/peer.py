@@ -1,9 +1,27 @@
 """依赖适配只选择目标与解释响应；预算和重试复用 SDK。"""
 
-from typing import cast
-
 from ken_platform_sdk.errors import PlatformError
 from ken_platform_sdk.http import ServiceHttpClient
+from pydantic import BaseModel
+
+
+class PeerItem(BaseModel):
+    id: str
+    name: str
+
+
+class PeerPage(BaseModel):
+    items: list[PeerItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class PeerResponse(BaseModel):
+    code: str
+    message: str
+    data: PeerPage
+    request_id: str
 
 
 class PeerClient:
@@ -11,11 +29,9 @@ class PeerClient:
         self.http = http
         self.service = service
 
-    async def list(self) -> object:
+    async def list(self) -> PeerResponse:
         if self.service != "sample-java-service":
             raise PlatformError("PEER_NOT_CONFIGURED", "未启用 Java 协作示例", 503)
-        result = await self.http.request("sample-java-service", "GET", "/api/v1/java-items")
-        if result.status_code != 200:
-            raise PlatformError("PEER_REJECTED", "下游未返回成功结果", result.status_code)
-        # 保留原 peer JSON 合同；这是已认证远端的结果，不用于建立身份。
-        return cast(object, result.json())
+        return await self.http.request_model(
+            "sample-java-service", "GET", "/api/v1/java-items", PeerResponse
+        )

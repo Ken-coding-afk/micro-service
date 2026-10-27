@@ -66,11 +66,4 @@ class ItemRepository:
 async def verify_database(engine: AsyncEngine) -> None:
     """启动检查也属于持久化适配；装配层只调用，不内嵌 SQL。"""
     async with engine.connect() as connection:
-        row = (
-            await connection.execute(
-                text("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user")
-            )
-        ).one()
-        if row[0] or row[1]:
-            raise ValueError("业务必须使用受限 runtime 数据库账号")
         await connection.execute(text("SELECT id FROM sample_item LIMIT 0"))

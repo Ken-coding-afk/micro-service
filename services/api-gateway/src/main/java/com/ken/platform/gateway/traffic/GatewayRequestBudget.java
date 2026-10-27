@@ -11,6 +11,16 @@ import reactor.core.publisher.Mono;
 
 /** 包含认证、连接和响应体的普通请求总预算；流式路由不套普通截止时间。 */
 public final class GatewayRequestBudget implements GlobalFilter, Ordered {
+  private final io.micrometer.core.instrument.MeterRegistry metrics;
+
+  public GatewayRequestBudget() {
+    this(io.micrometer.core.instrument.Metrics.globalRegistry);
+  }
+
+  public GatewayRequestBudget(io.micrometer.core.instrument.MeterRegistry metrics) {
+    this.metrics = metrics;
+  }
+
   @Override
   public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
     Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
@@ -21,7 +31,13 @@ public final class GatewayRequestBudget implements GlobalFilter, Ordered {
       work =
           work.timeout(
               Duration.ofSeconds(15),
-              Mono.error(new PlatformException("UPSTREAM_TIMEOUT", "网关请求总预算已耗尽", 504)));
+              Mono.defer(
+                  () -> {
+                    metrics
+                        .counter("platform.gateway.budget.timeout", "route", route.getId())
+                        .increment();
+                    return Mono.error(new PlatformException("UPSTREAM_TIMEOUT", "网关请求总预算已耗尽", 504));
+                  }));
     }
     return work.doOnError(
         PlatformRedisRateLimiter.Rejected.class,

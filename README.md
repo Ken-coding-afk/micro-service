@@ -2,7 +2,7 @@
 
 从一份可运行的混合语言项目创建自己的项目。公共 SDK、身份服务、网关及运维脚本直接随项目源码交付；初始两个业务归主仓，后续独立服务以固定 Git submodule 接入。
 
-**当前处于源码脚手架改造实施阶段，Docker 验收暂停。** 新目录和使用流程的验证结果以[当前计划](docs/plans/2026-10-27-源码微服务脚手架改造-plan.md)为准；历史运行结果不证明本次改造已通过。
+**当前处于脚手架工程能力补齐阶段，Docker 验收暂停。** 新目录和使用流程的验证结果以[当前计划](docs/plans/2026-10-27-脚手架精简与工程能力补齐-plan.md)为准；历史运行结果不证明本次改造已通过。
 
 ```text
 sdk/java/                   Java 公共接入代码
@@ -43,6 +43,7 @@ uv run --frozen python scripts/create.py --ref <固定提交> --output ../equipm
 - [新项目接入](docs/guides/01-新项目接入指南.md)：创建、依赖、首次登录、新增服务。
 - [开发调试](docs/guides/02-开发调试指南.md)：VS Code、运行绑定和排错。
 - [开发与升级](docs/guides/04-新项目开发与规范升级指南.md)：SQL、构建、部署和升级。
+- [工程检查与监控](docs/guides/05-工程检查与监控指南.md)：CI、可选采集、管理页和验证边界。
 - [编码规范](docs/standards/01-项目编码规范.md)：项目、Java、Python 规范。
 - [脚本职责](scripts/README.md)与[部署操作](deploy/ansible/README.md)。
 - [文档导航](docs/01-文档导航.md)：权威设计与历史计划分开维护。

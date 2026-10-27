@@ -9,7 +9,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from tools.config.contract import parse_env_file, secret_value
+from scripts.config.contract import parse_env_file, secret_value
 
 
 @pytest.mark.skipif(

@@ -12,7 +12,7 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from .context import current_context, request_context
 from .errors import PlatformError
 from .security import CurrentPrincipal, ResourceIntrospector
-from .web import PlatformMiddleware
+from .web import PlatformMiddleware, install_error_handlers
 
 _CURRENT: ContextVar[CurrentPrincipal | None] = ContextVar("platform_principal", default=None)
 _HEALTH = {"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness"}
@@ -142,6 +142,7 @@ def install_resource_security(app: FastAPI, introspector: ResourceIntrospector) 
     if getattr(app.state, "platform_introspector", None) is not None:
         raise ValueError("资源身份不能重复装配")
     app.state.platform_introspector = introspector
+    install_error_handlers(app)
     if not any(middleware.cls is PlatformMiddleware for middleware in app.user_middleware):
         app.add_middleware(PlatformMiddleware)
     previous = app.router.lifespan_context

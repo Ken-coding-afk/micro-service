@@ -168,9 +168,28 @@ public class BffConfiguration {
         .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
         .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
         .logout(ServerHttpSecurity.LogoutSpec::disable)
-        .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens).accessDeniedHandler(errors))
+        .csrf(
+            csrf ->
+                csrf.csrfTokenRepository(csrfTokens)
+                    .accessDeniedHandler(errors)
+                    .requireCsrfProtectionMatcher(
+                        exchange -> {
+                          String path = exchange.getRequest().getPath().value();
+                          if (path.startsWith(BffMonitoring.PREFIX))
+                            return org.springframework.security.web.server.util.matcher
+                                .ServerWebExchangeMatcher.MatchResult.notMatch();
+                          return org.springframework.security.web.server.csrf.CsrfWebFilter
+                              .DEFAULT_CSRF_MATCHER
+                              .matches(exchange);
+                        }))
         .exceptionHandling(
             exceptions -> exceptions.authenticationEntryPoint(errors).accessDeniedHandler(errors));
+    http.headers(
+        headers ->
+            headers.contentSecurityPolicy(
+                csp ->
+                    csp.policyDirectives(
+                        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")));
     http.authorizeExchange(
         requests -> {
           for (var namespace : settings.namespaces()) {

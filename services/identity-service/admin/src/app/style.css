@@ -798,3 +798,9 @@ td small {
     flex-wrap: wrap;
   }
 }
+
+.monitoring-frame {
+  width: 100%;
+  min-height: 75vh;
+  border: 0;
+}

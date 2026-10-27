@@ -8,8 +8,7 @@ import tempfile
 from pathlib import Path
 
 from common import FRAMEWORK, run, write
-from generation import copy_source, service_files
-from instructions import service_readme
+from generation import copy_source, service_files, service_readme
 from registration import replace, replacements, validate_name, validate_package
 
 

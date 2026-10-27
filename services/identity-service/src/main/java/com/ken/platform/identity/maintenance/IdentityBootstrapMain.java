@@ -50,6 +50,7 @@ public final class IdentityBootstrapMain {
       if (args.length != 1
           || !Set.of(
                   "bootstrap",
+                  "bootstrap-monitoring",
                   "bootstrap-local",
                   "bootstrap-services-technical",
                   "bootstrap-services-applications")
@@ -157,7 +158,7 @@ public final class IdentityBootstrapMain {
                     policies,
                     passwords,
                     manager)
-                .initialize(command);
+                .initialize(command, args[0].equals("bootstrap-monitoring"));
         System.out.println(
             JSON.writeValueAsString(
                 Map.of(

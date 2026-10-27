@@ -14,6 +14,7 @@ public class IdentityApplication {
     if (args.length > 0
         && (args[0].equals("bootstrap")
             || args[0].equals("bootstrap-local")
+            || args[0].equals("bootstrap-monitoring")
             || args[0].startsWith("bootstrap-services-"))) {
       System.exit(
           com.ken.platform.identity.maintenance.IdentityBootstrapMain.run(System.getenv(), args));

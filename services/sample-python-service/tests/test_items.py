@@ -18,6 +18,21 @@ from sample_service.schemas.items import Item, ItemPage
 from sample_service.services.items import ItemService
 
 
+async def test_expired_work_never_opens_transaction_or_writes():
+    import time
+    from unittest.mock import Mock
+
+    from ken_platform_sdk.errors import DeadlineExceeded
+
+    transaction = Mock()
+    repository = AsyncMock()
+    service = ItemService(repository, transaction, BusinessSettings())
+    with request_context(deadline=time.time() - 1), pytest.raises(DeadlineExceeded):
+        await service.create(principal(), "item")
+    transaction.assert_not_called()
+    repository.create.assert_not_awaited()
+
+
 def principal(scope=DataScope.SELF):
     return CurrentPrincipal(
         str(uuid.uuid4()),
@@ -125,19 +140,41 @@ def test_http_fields_validation_and_pagination_contract():
 
 @pytest.mark.asyncio
 async def test_peer_preserves_json_and_does_not_hide_downstream_failure():
-    http = AsyncMock()
-    http.request.return_value = httpx.Response(
-        200, json={"data": {"items": []}, "request_id": "remote"}
-    )
-    peer = PeerClient(http, "sample-java-service")
-    assert await peer.list() == {"data": {"items": []}, "request_id": "remote"}
-    http.request.assert_awaited_once_with("sample-java-service", "GET", "/api/v1/java-items")
-    http.request.return_value = httpx.Response(503, json={"code": "SERVICE_BUSY"})
-    with pytest.raises(PlatformError) as caught:
-        await peer.list()
-    assert caught.value.code == "PEER_REJECTED"
-    assert caught.value.status == 503
-    http.reset_mock()
-    with pytest.raises(PlatformError):
-        await PeerClient(http, None).list()
-    http.request.assert_not_awaited()
+    from ken_platform_sdk.discovery import ServiceDiscovery, ServiceInstance
+    from ken_platform_sdk.http import ServiceHttpClient
+
+    class Provider:
+        async def query(self, service):
+            return [ServiceInstance("peer.invalid", 80)]
+
+    discovery = ServiceDiscovery(Provider())
+    await discovery.refresh("sample-java-service")
+    body = {
+        "code": "OK",
+        "message": "success",
+        "data": {"items": [], "total": 0, "page": 1, "page_size": 20},
+        "request_id": "remote",
+    }
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return (
+            httpx.Response(200, json=body)
+            if len(requests) == 1
+            else httpx.Response(503, json={"code": "SERVICE_BUSY", "message": "private details"})
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as transport:
+        http = ServiceHttpClient(discovery, transport)
+        peer = PeerClient(http, "sample-java-service")
+        assert (await peer.list()).model_dump() == body
+        assert requests[0].url.path == "/api/v1/java-items"
+        with pytest.raises(PlatformError) as caught:
+            await peer.list()
+        assert caught.value.code == "SERVICE_BUSY"
+        assert caught.value.status == 503
+        assert "private" not in str(caught.value)
+        with pytest.raises(PlatformError):
+            await PeerClient(http, None).list()
+        assert len(requests) == 2

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import generation
@@ -87,6 +88,17 @@ def test_generated_project_has_one_source_and_independent_entries(project):
     assert (project / "sdk/java/pom.xml").is_file()
     assert (project / "sdk/python/pyproject.toml").is_file()
     assert (project / "services/inspection-service/Dockerfile").is_file()
+    workflow = yaml.safe_load(
+        (project / ".github/workflows/checks.yml").read_text(encoding="utf-8")
+    )
+    assert "maintenance" not in workflow["jobs"]
+    python_steps = "\n".join(step.get("run", "") for step in workflow["jobs"]["python"]["steps"])
+    for test in ("test_items.py", "test_business_config.py", "test_application.py"):
+        assert test in python_steps
+        assert (project / "services/inspection-service/tests" / test).is_file()
+    assert not (project / "tests/acceptance/legacy").exists()
+    assert (project / "tests/acceptance/smoke.cjs").is_file()
+    assert (project / "docs/guides/05-工程检查与监控指南.md").is_file()
     assert "scripts/init.py" in (project / "README.md").read_text(encoding="utf-8")
     assert "vendor/micro-service" not in (project / "pom.xml").read_text(encoding="utf-8")
     for name in ("init", "dev", "add_service", "build", "package", "migrate", "compose"):
@@ -113,7 +125,12 @@ def test_create_exports_explicit_commit_not_dirty_generator(project, tmp_path, m
         "deploy",
         "web",
         "docs/standards",
+        "docs/guides/05-工程检查与监控指南.md",
+        "docs/guides/06-SDK使用参考.md",
+        "docs/guides/07-系统安全验收清单.md",
+        ".github",
         "tests/fixtures",
+        "tests/acceptance/smoke.cjs",
         ".mvn",
         "pom.xml",
         "mvnw",

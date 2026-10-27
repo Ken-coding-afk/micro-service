@@ -10,7 +10,7 @@ import psycopg
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools.config import contract
+from scripts.config import contract
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[2]
 

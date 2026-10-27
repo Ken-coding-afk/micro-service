@@ -3,7 +3,7 @@
 集成测试需要真实组件(设计/计划要求:配置漂移与资源初始化不能只用 mock):
 conftest 负责按需 bootstrap——生成 .local/environment.env(prepare-local)、
 启动 infra compose(postgres/redis/nacos,不含 mq profile)、等待健康。
-组件不可用时集成用例自动 skip 并写明原因,不静默通过。
+默认不启动真实组件；--run-integration 显式选择后，环境不可用必须失败。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import pytest
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FRAMEWORK_ROOT))
 sys.path.insert(0, str(FRAMEWORK_ROOT / "scripts/config"))
-import contract
+import contract  # noqa: E402
 
 
 def _compose_running() -> bool:
@@ -58,9 +58,41 @@ def _wait_port(host: str, port: int, timeout: float = 120) -> bool:
     return False
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help="显式允许本目录测试初始化真实组件；默认不执行 Docker",
+    )
+
+
+@pytest.fixture(autouse=True)
+def no_implicit_docker(request, monkeypatch):
+    """没有显式集成授权时，即使某个测试漏 mock 也不能访问 Docker。"""
+    if request.config.getoption("--run-integration"):
+        return
+    original = subprocess.Popen
+
+    def guarded(args, *positional, **kwargs):
+        executable = args.split()[0] if isinstance(args, str) else str(args[0])
+        if Path(executable).name.lower() in {
+            "docker",
+            "docker.exe",
+            "docker-compose",
+            "docker-compose.exe",
+        }:
+            pytest.fail("非集成测试禁止真实 Docker 子进程；请修正 mock 的实际消费者")
+        return original(args, *positional, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", guarded)
+
+
 @pytest.fixture(scope="session")
-def local_env() -> dict[str, str]:
+def local_env(request) -> dict[str, str]:
     """真实本地环境绑定;必要时 bootstrap,失败则 skip 集成用例。"""
+    if not request.config.getoption("--run-integration"):
+        pytest.skip("真实集成未启用；使用 --run-integration 明确授权环境初始化")
     env_file = FRAMEWORK_ROOT / ".local" / "environment.env"
     # 每次核对样例新增字段，真实已有凭据保持不变。
     result = subprocess.run(
@@ -95,14 +127,12 @@ def local_env() -> dict[str, str]:
             env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
         assert result.returncode == 0, result.stderr
-    ready = _wait_port(
-        env.values["PG_HOST"], int(env.values["PG_PORT"])
-    ) and _wait_port(
+    ready = _wait_port(env.values["PG_HOST"], int(env.values["PG_PORT"])) and _wait_port(
         env.values["NACOS_SERVER_ADDR"].split(":")[0],
         int(env.values["NACOS_SERVER_ADDR"].split(":")[1]),
     )
     if not ready:
-        pytest.skip("infra 组件未在超时内就绪,跳过集成用例")
+        pytest.fail("显式集成环境未在超时内就绪，验收失败")
     return env.values
 
 
@@ -116,9 +146,7 @@ def isolated_env_factory(local_env, tmp_path):
         tag = uuid.uuid4().hex[:6]
         lines = []
         for raw in (
-            (FRAMEWORK_ROOT / ".local" / "environment.env")
-            .read_text(encoding="utf-8")
-            .splitlines()
+            (FRAMEWORK_ROOT / ".local" / "environment.env").read_text(encoding="utf-8").splitlines()
         ):
             if raw.startswith("PROJECT_CODE="):
                 lines.append(f"PROJECT_CODE={code}")

@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools.config import contract
+from scripts.config import contract
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[2]
 
@@ -150,7 +150,7 @@ def test_publish_then_drift_refused(
     local_env, tmp_path, monkeypatch, isolated_env_factory, run_init
 ):
     pytest.importorskip("httpx")
-    from tools.config import publish as publish_module
+    from scripts.config import publish as publish_module
 
     resource = """
 resources:

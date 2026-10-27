@@ -86,6 +86,17 @@ public final class PlatformEnvironmentPostProcessor implements EnvironmentPostPr
     }
     var fixed = new HashMap<String, Object>();
     fixed.put("spring.application.name", settings.serviceName());
+    // Boot 原生结构化日志包含 MDC；自定义日志配置仍由业务显式维护这些字段。
+    environment
+        .getPropertySources()
+        .addLast(
+            new MapPropertySource(
+                "platform-log-defaults",
+                Map.of(
+                    "logging.structured.format.console",
+                    "logstash",
+                    "logging.structured.json.add.service",
+                    settings.serviceName())));
     if (ClassUtils.isPresent("org.springframework.jdbc.core.JdbcTemplate", null))
       fixed.putAll(PlatformDatabaseSettings.from(environment).springProperties());
     boolean docs =

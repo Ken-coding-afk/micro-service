@@ -1,10 +1,13 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+
 spec = importlib.util.spec_from_file_location(
-    "dev_launch", Path(__file__).parents[2] / "scripts/deploy/dev.py"
+    "dev_launch", Path(__file__).parents[2] / "scripts/dev.py"
 )
 dev = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dev)
@@ -15,9 +18,28 @@ def project(root):
     (root / "services/items/target").mkdir(parents=True)
     (root / "services/items/target/items.jar").write_bytes(b"fixture")
     import yaml
-    records = {name: {"source": "local", "language": "java", "directory": "services/" + name, "requires": []} for name in ("identity-service", "api-gateway", "items")}
-    (root / "config/services.yaml").write_text(yaml.safe_dump({"services": records}), encoding="utf-8")
-    (root / "config/development.yaml").write_text(yaml.safe_dump({"local": {"project": "sample", "port_offset": 0}, "services": {"items": {"port": 8082}}}), encoding="utf-8")
+
+    records = {
+        name: {
+            "source": "local",
+            "language": "java",
+            "directory": "services/" + name,
+            "requires": [],
+        }
+        for name in ("identity-service", "api-gateway", "items")
+    }
+    (root / "config/services.yaml").write_text(
+        yaml.safe_dump({"services": records}), encoding="utf-8"
+    )
+    (root / "config/development.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "local": {"project": "sample", "port_offset": 0},
+                "services": {"items": {"port": 8082}},
+            }
+        ),
+        encoding="utf-8",
+    )
     env = root / "runtime.env"
     env.write_text(
         "PROJECT_CODE=sample\nAPP_ENV=local\nNACOS_NAMESPACE=sample-local\n"

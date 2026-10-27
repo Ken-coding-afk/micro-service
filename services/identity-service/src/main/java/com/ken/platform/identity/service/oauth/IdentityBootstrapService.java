@@ -94,10 +94,14 @@ public final class IdentityBootstrapService {
   }
 
   public Result initialize(Command command) {
+    return initialize(command, false);
+  }
+
+  public Result initialize(Command command, boolean upgradeMonitoring) {
     if (TransactionSynchronizationManager.isActualTransactionActive())
       throw new IllegalStateException("首次安装必须拥有独立事务");
     try {
-      return initializeChecked(command);
+      return initializeChecked(command, upgradeMonitoring);
     } catch (RuntimeException failure) {
       String code = failure instanceof PlatformException known ? known.code() : "INTERNAL_ERROR";
       try {
@@ -120,7 +124,7 @@ public final class IdentityBootstrapService {
     }
   }
 
-  private Result initializeChecked(Command command) {
+  private Result initializeChecked(Command command, boolean upgradeMonitoring) {
     validate(command);
     requireNamespace(command, bootstrap.state());
     catalog.install();
@@ -168,7 +172,8 @@ public final class IdentityBootstrapService {
               "platform",
               command.platformSecret(),
               null,
-              ids);
+              ids,
+              upgradeMonitoring);
           initializeClient(
               command,
               "TENANT_BFF",
@@ -177,7 +182,8 @@ public final class IdentityBootstrapService {
               "tenant",
               command.tenantSecret(),
               null,
-              ids);
+              ids,
+              upgradeMonitoring);
           command.publisherSecrets().entrySet().stream()
               .sorted(Map.Entry.comparingByKey())
               .forEach(
@@ -190,7 +196,8 @@ public final class IdentityBootstrapService {
                           null,
                           entry.getValue(),
                           entry.getKey(),
-                          ids));
+                          ids,
+                          upgradeMonitoring));
           return new Result(admin, created, ids);
         });
   }
@@ -203,7 +210,8 @@ public final class IdentityBootstrapService {
       String namespace,
       String secret,
       String service,
-      Map<String, String> ids) {
+      Map<String, String> ids,
+      boolean upgradeMonitoring) {
     Set<UUID> tenants = Set.of();
     if (purpose.equals("TENANT_BFF")) {
       var existing = clientStore.byClientId(id);
@@ -220,6 +228,12 @@ public final class IdentityBootstrapService {
               .map(row -> row.oauthScope())
               .collect(Collectors.toSet());
       values.addAll(Set.of("openid", "profile"));
+      var existing = clientStore.byClientId(id);
+      if (purpose.equals("PLATFORM_BFF")
+          && !upgradeMonitoring
+          && existing != null
+          && !existing.client().getScopes().contains("platform.monitoring"))
+        values.remove("platform.monitoring");
       scopes = Set.copyOf(values);
     } else scopes = Set.of("catalog.publish:" + service);
     var definition =
@@ -243,7 +257,11 @@ public final class IdentityBootstrapService {
             namespace != null,
             Status.ACTIVE);
     clients.initialize(
-        purpose, definition, secret, passwords.encode(secret, policies.current(null)));
+        purpose,
+        definition,
+        secret,
+        passwords.encode(secret, policies.current(null)),
+        upgradeMonitoring);
     ids.put(purpose, id);
   }
 

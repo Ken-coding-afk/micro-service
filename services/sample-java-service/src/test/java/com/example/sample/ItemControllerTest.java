@@ -12,7 +12,6 @@ import com.example.sample.service.ItemService;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class ItemControllerTest {
@@ -36,6 +35,10 @@ class ItemControllerTest {
     var service = mock(ItemService.class);
     var mvc =
         MockMvcBuilders.standaloneSetup(new ItemController(service))
+            .addFilters(
+                new com.ken.platform.foundation.web.ServletRequestContextFilter(
+                    java.time.Clock.systemUTC(),
+                    com.ken.platform.foundation.config.RuntimeParameters.defaults()))
             .setCustomArgumentResolvers(
                 new org.springframework.security.web.method.annotation
                     .AuthenticationPrincipalArgumentResolver())
@@ -63,13 +66,12 @@ class ItemControllerTest {
             post("/api/v1/java-items").contentType("application/json").content("{\"name\":\"\"}"))
         .andExpect(status().isBadRequest());
     when(service.peer())
-        .thenReturn(
-            ResponseEntity.status(503)
-                .body(
-                    "{\"code\":\"SERVICE_BUSY\"}"
-                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        .thenThrow(
+            new com.ken.platform.foundation.http.PlatformException(
+                "SERVICE_BUSY", "依赖未返回成功响应", 503));
     mvc.perform(get("/api/v1/java-items/peer"))
         .andExpect(status().isServiceUnavailable())
-        .andExpect(content().string("{\"code\":\"SERVICE_BUSY\"}"));
+        .andExpect(jsonPath("$.code").value("SERVICE_BUSY"))
+        .andExpect(jsonPath("$.request_id").isString());
   }
 }

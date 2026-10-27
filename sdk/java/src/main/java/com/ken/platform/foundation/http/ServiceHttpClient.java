@@ -18,6 +18,75 @@ import reactor.core.publisher.Mono;
 
 /** 非阻塞 HTTP；关闭底层自动重放，只允许框架额外重试一次 GET。 */
 public final class ServiceHttpClient implements AutoCloseable {
+  private static final tools.jackson.databind.json.JsonMapper JSON =
+      tools.jackson.databind.json.JsonMapper.builder()
+          .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+          .disable(tools.jackson.databind.MapperFeature.ALLOW_COERCION_OF_SCALARS)
+          .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+          .build();
+
+  /** 类型化 JSON 入口；取消传播到 raw Future，调用预算同时约束响应读取和解码。 */
+  public <T> CompletableFuture<ResponseEntity<T>> request(
+      String service,
+      String method,
+      String path,
+      byte[] body,
+      CallContext context,
+      org.springframework.core.ParameterizedTypeReference<T> responseType) {
+    Duration available = responseBudget;
+    if (context != null && context.deadline() != null) {
+      Duration inherited = Duration.between(clock.instant(), context.deadline());
+      if (inherited.compareTo(available) < 0) available = inherited;
+    }
+    if (available.isNegative() || available.isZero())
+      return CompletableFuture.failedFuture(timeout());
+    long deadline = System.nanoTime() + available.toNanos();
+    return Mono.fromFuture(() -> request(service, method, path, body, context))
+        .map(
+            response -> {
+              if (!response.getStatusCode().is2xxSuccessful()) {
+                String code = "DEPENDENCY_REJECTED";
+                try {
+                  if (response.getBody() != null && response.getBody().length <= 65536) {
+                    var tree = JSON.readTree(response.getBody());
+                    var field = tree == null ? null : tree.get("code");
+                    if (field != null
+                        && field.isString()
+                        && field.asString().matches("[A-Z][A-Z0-9_]{0,63}"))
+                      code = field.asString();
+                  }
+                } catch (RuntimeException ignored) {
+                  /* 不回显非协议错误正文。 */
+                }
+                throw new PlatformException(code, "依赖未返回成功响应", response.getStatusCode().value());
+              }
+              T value;
+              try {
+                if (response.getStatusCode().value() == 204
+                    && responseType.getType() == Void.class) {
+                  value = null;
+                } else {
+                  value =
+                      JSON.readValue(
+                          response.getBody(),
+                          JSON.getTypeFactory().constructType(responseType.getType()));
+                  if (value == null) throw new IllegalArgumentException("empty JSON");
+                }
+              } catch (RuntimeException invalid) {
+                throw new PlatformException("DEPENDENCY_INVALID_RESPONSE", "依赖响应不符合声明的类型", 502);
+              }
+              if (System.nanoTime() >= deadline) throw timeout();
+              var headers = new org.springframework.http.HttpHeaders();
+              headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+              String retryAfter = response.getHeaders().getFirst("Retry-After");
+              if (retryAfter != null && retryAfter.length() <= 128)
+                headers.set("Retry-After", retryAfter);
+              return new ResponseEntity<T>(value, headers, response.getStatusCode());
+            })
+        .timeout(available, Mono.error(timeout()))
+        .toFuture();
+  }
+
   private static final String IO_STARTED = ServiceHttpClient.class.getName() + ".io";
   private final ServiceDiscovery discovery;
   private final WebClient client;

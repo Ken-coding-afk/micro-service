@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import {
   brand,
@@ -31,6 +31,22 @@ const error = ref('')
 const notice = ref('')
 const realm = ref<Realm | null>(null)
 const me = ref<Me | null>(null)
+const monitoring = ref(false)
+watch(me, async (value, _old, cleanup) => {
+  monitoring.value = false
+  if (value?.principal_type !== 'platform' || !can(value, 'platform:monitoring:read')) return
+  const controller = new AbortController()
+  cleanup(() => controller.abort())
+  try {
+    const response = await fetch('/bff/identity/platform/monitoring-availability', {
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+    if (response.ok) monitoring.value = (await response.json()).enabled === true
+  } catch {
+    /* 不让可选监控影响账号页面。 */
+  }
+})
 const available = ref<Partial<Record<Realm, Me>>>({})
 const loginRealm = ref<Realm>('tenant')
 const tenantCode = ref('')
@@ -198,6 +214,12 @@ onMounted(restore)
       </div>
       <div class="nav-label">身份管理</div>
       <nav aria-label="管理导航">
+        <RouterLink
+          v-if="monitoring && me?.principal_type === 'platform'"
+          to="/platform/monitoring"
+          class="nav-link"
+          >服务监控<span>运行指标与故障定位</span></RouterLink
+        >
         <RouterLink
           v-if="me?.principal_type === 'platform' && can(me, 'platform:client:read')"
           to="/platform/clients"

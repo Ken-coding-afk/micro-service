@@ -35,7 +35,17 @@ public final class BffIdentityClient {
   private final WebClient web;
 
   public record Identity(
-      String subject, String type, UUID tenant, String client, Set<String> audiences) {
+      String subject,
+      String type,
+      UUID tenant,
+      String client,
+      Set<String> audiences,
+      boolean monitoring) {
+    public Identity(
+        String subject, String type, UUID tenant, String client, Set<String> audiences) {
+      this(subject, type, tenant, client, audiences, false);
+    }
+
     public Identity {
       audiences = Set.copyOf(audiences);
     }
@@ -181,7 +191,8 @@ public final class BffIdentityClient {
                               type,
                               tenant,
                               client.getClientId(),
-                              Set.copyOf(audiences.propertyNames()));
+                              Set.copyOf(audiences.propertyNames()),
+                              monitoringAllowed(data));
                         } catch (PlatformException known) {
                           throw known;
                         } catch (Exception malformed) {
@@ -190,6 +201,18 @@ public final class BffIdentityClient {
                       });
             })
         .onErrorMap(error -> error instanceof PlatformException ? error : unavailable());
+  }
+
+  static boolean monitoringAllowed(tools.jackson.databind.JsonNode data) {
+    if (!"platform".equals(data.path("principal_type").asString())
+        || !data.path("tenant_id").isNull()) return false;
+    var resource = data.path("audiences").path("identity-service");
+    boolean permission = false, scope = false;
+    for (var value : resource.path("permissions"))
+      permission |= "platform:monitoring:read".equals(value.asString());
+    for (var value : resource.path("scopes"))
+      scope |= "platform.monitoring".equals(value.asString());
+    return permission && scope;
   }
 
   public Mono<OAuth2User> loginUser(OAuth2UserRequest request) {

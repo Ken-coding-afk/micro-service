@@ -17,6 +17,7 @@
   <description>Java 公共接入包：配置、身份、租户、HTTP、数据、消息与观测的统一装配（按技术职责分包，条件装配）</description>
 
   <dependencies>
+    <dependency><groupId>io.micrometer</groupId><artifactId>context-propagation</artifactId></dependency>
     <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-core</artifactId></dependency>
 <dependency><groupId>com.alibaba.csp</groupId><artifactId>sentinel-core</artifactId><optional>true</optional></dependency>
 <dependency><groupId>com.alibaba.csp</groupId><artifactId>sentinel-datasource-nacos</artifactId><optional>true</optional></dependency>

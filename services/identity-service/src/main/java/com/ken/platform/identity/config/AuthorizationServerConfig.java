@@ -207,6 +207,12 @@ public class AuthorizationServerConfig {
                                       .authentication.OpaqueTokenAuthenticationProvider(
                                       users::userInfoPrincipal))))
                   .authenticationEntryPoint(resourceErrors));
+    http.headers(
+        headers ->
+            headers.contentSecurityPolicy(
+                csp ->
+                    csp.policyDirectives(
+                        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")));
     http.securityMatcher(
         http.getConfigurer(OAuth2AuthorizationServerConfigurer.class).getEndpointsMatcher());
     var guard = browserGuard.getIfAvailable();
@@ -257,7 +263,7 @@ public class AuthorizationServerConfig {
                 .contentSecurityPolicy(
                     csp ->
                         csp.policyDirectives(
-                            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"))
+                            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"))
                 .referrerPolicy(
                     policy ->
                         policy.policy(

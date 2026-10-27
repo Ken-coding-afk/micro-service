@@ -2,7 +2,7 @@
 
 import pytest
 
-from tools.config import contract
+from scripts.config import contract
 
 
 def valid_values():
@@ -260,7 +260,7 @@ def test_remote_query_failure_cannot_be_treated_as_absent(
 
     import httpx
 
-    from tools.config import publish
+    from scripts.config import publish
 
     values = valid_values() | {
         "NACOS_PUBLISH_USER": "publisher",

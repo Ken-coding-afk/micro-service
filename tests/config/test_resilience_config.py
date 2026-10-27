@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
-from tools.config.components import component_issues, sentinel_rules
-from tools.config.contract import validate_nacos_source
+
+from scripts.config.components import component_issues, sentinel_rules
+from scripts.config.contract import validate_nacos_source
 
 
 def test_mixed_example_sources_include_native_routes_and_both_required_json_files(

@@ -28,7 +28,7 @@ class CurrentPrincipalTest {
   static Stream<Arguments> cases() throws Exception {
     var fixture =
         JSON.readTree(
-            Files.readString(Path.of("..", "tests", "fixtures", "introspection-v1.json")));
+            Files.readString(Path.of("..", "..", "tests", "fixtures", "introspection-v1.json")));
     assertThat(fixture.get("test_only").asBoolean()).isTrue();
     assertThat(fixture.get("now").asLong()).isEqualTo(NOW);
     return java.util.stream.StreamSupport.stream(fixture.get("cases").spliterator(), false)

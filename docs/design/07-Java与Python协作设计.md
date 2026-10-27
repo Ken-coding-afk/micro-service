@@ -1,6 +1,8 @@
 # Java与Python协作设计
 
-> 文档版本：1.9；文档集基线：D-20261027-07；更新：2026-10-27。  
+> 本轮实施目标：D-20261027-12；用户已授权 A 层实施，Docker 运行验收暂停。执行入口：[工程能力补齐计划](../plans/2026-10-27-脚手架精简与工程能力补齐-plan.md)。
+
+> 文档版本：1.9；文档集基线：D-20261027-12；更新：2026-10-27。  
 > 状态：已确认的目标设计；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：公共包、同步调用与可选消息；服务寻址引用配置设计；不提供业务任务运行时。  
 > 导航：[文档总入口](../01-文档导航.md)；本次流量保护任务与证据见[实施计划](../plans/2026-10-27-限流熔断与并发保护-plan.md)；历史混合接入见[原计划](../plans/2026-10-27-混合项目接入与审查修正-plan.md)。
@@ -25,7 +27,7 @@
 
 Python 每服务拥有 pyproject.toml、uv.lock 和 .venv；开发 SDK 以 ../../sdk/python、editable=true 引用。根 uv 环境仅用于 scripts，不进入业务 workspace。初始 Python 锁在首次依赖准备生成，后续 frozen sync；新增 submodule 服务的锁在入库前同构目录生成，接入不重写子仓锁。具体步骤见[新增服务](11-源码脚手架交付与开发体验设计.md#service-submodules)。
 
-双语 F5/compound、解释器选择及 Windows 事件循环见[调试合同](11-源码脚手架交付与开发体验设计.md#vscode)。代码分仓与 SDK 目录分组不改变运行时服务发现、token audience、scope 和租户校验；调用仍走 HTTP，不共享业务实体。类型化客户端与跨语言契约检查是独立已知缺口，本次 OpenAPI 只提供文档与调试。
+双语 F5/compound、解释器选择及 Windows 事件循环见[调试合同](11-源码脚手架交付与开发体验设计.md#vscode)。代码分仓与 SDK 目录分组不改变运行时服务发现、token audience、scope 和租户校验；调用仍走 HTTP，不共享业务实体。类型化 HTTP 反序列化由 SDK 提供，业务 DTO 与 Client 留在服务内；OpenAPI client 自动生成及跨仓编译期兼容检查仍是独立后续任务。
 
 增加第三方 Python 依赖只修改该服务的 pyproject/lock，其他项目和兄弟服务的锁文件不变化。生产构建通过锁文件安装依赖并将 SDK/业务转为非 editable 安装；不把开发期的源码挂载带到生产。
 
@@ -98,6 +100,18 @@ spring:
 
 <a id="http"></a>
 
+<a id="developer-basics"></a>
+
+### 基础使用合同（D-20261027-12）
+
+- 日志使用 snake_case 字段 service、request_id、tenant_id、trace_id。身份只来自认证/受信任任务或验证后的消息；token、Cookie 不进入日志上下文字段。Java CallContexts 作用域设置并恢复 MDC；Reactor 通过 Micrometer Context Propagation 从既有 CallContext key 恢复，不用全局共享租户。独立 Executor/CompletableFuture 显式包装上下文，禁止认为任意线程自动继承。Python 标准 logging Filter/Formatter 读取 contextvars；asyncio.to_thread 自带传播，独立线程池显式 copy_context；后台脱离请求先创建干净 Context，不捕获用户 token。
+- 可信任务入口 Java CallContexts.task(UUID tenant, String service, Duration budget)、Python task_context(tenant_id, service, timeout_seconds) 必须无在途请求作用域，显式声明租户与服务身份（service:<name>），生成独立 request_id，预算大于零且最多24小时。它不授予权限或发 token；只能由验证过来源的任务入口使用，不接受 HTTP 参数直接构造管理员身份。MQ 已有来源验证与租户作用域，继续复用。
+- Java remainingBudget(Duration fallback)/checkDeadline、Python remaining_seconds(default_seconds=10)/check_deadline 读取当前绝对 deadline。无 deadline 时检查为无操作、剩余预算使用合法 fallback；到期抛 UPSTREAM_TIMEOUT/504。业务在事务/昂贵依赖调用前检查，长循环自行增加检查点；DB/外部SDK需要业务把剩余预算映射到其成熟超时参数。本轮不自动抢占线程、杀进程或降级数据库；超时后写结果必须核对，禁止盲目重试。
+- 通用业务 JSON 错误字段 code、message、data=null、request_id；X-Request-Id 与 body 一致，Cache-Control=no-store。适用于 /api、/internal、/bff 路径，既有认证错误和显式 PlatformException/Error 保留业务 code；普通入参校验为400/VALIDATION_ERROR，畸形请求400/INVALID_REQUEST，404/NOT_FOUND、405/METHOD_NOT_ALLOWED、415/UNSUPPORTED_MEDIA_TYPE，未知500/INTERNAL_ERROR。未知异常不回显堆栈、输入和依赖正文，错误日志仅关联类型与请求标识。保留必要 Allow/Retry-After/WWW-Authenticate，错误 body 不复制任意响应头。既有身份管理的具体 handler 优先；OAuth 标准错误、浏览器重定向、静态页和已提交流不套业务外壳。
+- Python DatabaseReadiness(engine, expected_user, expected_database) 从真实连接核对 current/session_user、数据库、super/BYPASSRLS/CREATEROLE/CREATEDB/REPLICATION、数据库/schema CREATE 与 owner 成员关系、表 owner。业务表/迁移存在性由业务启动检查追加。verify 用于注册前；check 在运行探测中复用相同校验，失败为 false。每次数据库探测最多2秒，包含连接与查询。PlatformRuntime.start 增加独立 readiness_checks，启动先检查；is_ready 在 ready=true 时执行这些只读检查，最多2秒，失败返回 false、下次重新探测可恢复；不重跑装配/注册检查、不改变 liveness、不自动摘除全部实例。数据库角色/RLS真值仍须真实 PG 验收。
+- 公共资料复用已存在的 SQL、Outbox/Inbox、TenantResources；不增加通用存储、缓存/锁、调度、通知、报表、Saga/TCC 框架。系统安全验收必须区分纯测试与真实浏览器/PG/MQ/代理网络证据。
+
+
 ## 3. 跨语言 HTTP 合同
 
 对外业务接口统一 `/api/v1/...`，内部接口 `/internal/v1/...`。DTO 使用 JSON `snake_case`，Java 类成员仍采用 camelCase 并由序列化配置转换。ID 为字符串，时间为 UTC RFC3339，精确金额用十进制字符串及币种字段，禁止跨语言浮点金额运算。
@@ -124,6 +138,37 @@ OpenAPI 由服务的 DTO/路由生成并随服务发行；Java/Python 客户端�
 <a id="calls"></a>
 
 ## 4. 调用发现、超时与故障处理
+
+<a id="python-circuit"></a>
+
+### Python 出站熔断合同
+
+成熟库候选固定为 `circuitbreaker==2.1.3`（支持 async），在 A 层先做组件行为验证；不是重新实现 Sentinel。现有 AnyIO 容量限制、连接池、发现和预算继续保留。若选定版本不能通过取消/半开并发验证且需要自研状态机才能修补，停止此任务、提交证据并重新选型，不静默换库或放宽验收。
+
+- 只保护现有 runtime.http 对登记依赖的出站调用；每个依赖每个进程一个断路器。配置归该服务现有 Nacos 配置：`http.circuit_breakers.<service>`，字段 enabled、failure_threshold（默认 5）、recovery_timeout_seconds（默认 30）；默认无规则不启用，双语样例显式启用对端规则。配置随现有运行快照/重启生效，本轮不增加动态策略推送器。
+- 按一次逻辑调用的最终结果计数，GET 两次尝试不能双计；网络连接/读取失败、明确的远端超时及 5xx 算依赖失败。4xx（含 429）按远端可达处理，不计依赖故障；本地池满、容量拒绝、无实例、调用前预算耗尽、取消不计失败，且不能错误关闭正在半开的断路器；JSON 解码错误归契约问题，不加入可用性熔断计数。
+- Open 直接返回已有风格的 `DEPENDENCY_CIRCUIT_OPEN`/503，不请求网络；恢复窗口后用现有 AnyIO 能力限制一个半开探测，其余快速拒绝，不等待长队列。探测成功关闭，失败再次打开；取消释放许可且保持可恢复状态。禁止触碰库私有字段去伪造另一套状态机。已核查候选库 __exit__ 对不计数异常会 reset：薄子类仅覆盖公开上下文协议，使取消/本地拒绝直接传播且不更新状态；远端失败/成功仍交给父类。半开许可用 AnyIO 实现，不复制库状态机。
+- 顺序为预算检查→容量准入→断路器准入→同一次逻辑 HTTP 调用（含既有限定重试）→释放许可。断路器状态检查、取消和结果分类由薄适配层处理，状态转换复用库；跨进程不共享 Redis 状态。Java/Python 对齐保护目标与错误分类，不承诺所有 Sentinel 策略/参数相同。
+- SDK 集成状态/拒绝指标；测试用可控时钟/本地假传输，不真实睡眠 30 秒。真实依赖停机与恢复效果留 B 层。
+
+
+<a id="typed-http"></a>
+
+### 类型化调用合同
+
+：改善日常使用，不夸大契约保证
+
+沿用 HTTP/JSON、现有发现与安全上下文，不改 gRPC、不新建 RPC 平台。
+
+- Java：在 ServiceHttpClient 保留 raw request，新增接收 ParameterizedTypeReference<T> 的类型化入口，返回 CompletableFuture<ResponseEntity<T>>；使用当前 Jackson 与必要的 DTO 校验，业务 PeerClient 对外暴露领域方法。Python：保留 raw request，新增 response_type 参数的 request_model，使用现有 Pydantic TypeAdapter 返回 T；业务 PeerClient 明确 DTO 返回类型。
+- DTO 属业务服务；sdk 只提供序列化、错误处理与传输，不放 equipment/inspection 字段。客户端固定服务名和相对路径，可编码路径参数，但不接受任意外部 URL；不让每个业务另造 HTTPX/WebClient 生命周期。
+- 成功 JSON 正常解码，列表/泛型保留元素类型；必填缺失、必填 null、非法枚举和类型不符报 `DEPENDENCY_INVALID_RESPONSE`，不伪造默认零值；默认容忍新增非必需字段以支持兼容扩展。204 只在声明无返回值时成功。错误 HTTP 状态不尝试解码成成功 DTO，只提取既有安全错误码/请求 ID，不泄漏上游原文。
+- 总预算涵盖请求、读取和解码前后检查；保留 GET 最多额外一次的现有规则，不给 POST 自动重试，也不叠加库自带重试。取消须传递并释放连接/并发许可；类型化包装不得绕过 Sentinel 或 Python 保护。
+- 用双向样例 DTO 和生产者/消费者定向契约测试覆盖响应形状、401/403、5xx、非法 JSON、空体、超时、取消；同时保持生成项目可测试。
+- **明确限制：**本轮不是 OpenAPI client 生成，也不是跨仓编译期契约保证。对端部署后改字段仍可能在运行时才暴露；破坏性接口须升 API 版本，CI/联调检查生产者与消费者。自动生成 client 与完整 OpenAPI 兼容性门禁留作后续明确任务，不算本轮已交付。
+
+
+Java/Python SDK 保留 raw HTTP，并提供类型化反序列化入口；业务 DTO/PeerClient 留在服务内。类型化入口保持预算、取消、凭据和保护语义，必填缺失/错误类型报 DEPENDENCY_INVALID_RESPONSE；不承诺远端变更的编译期保障。Python 对登记依赖可配置 circuitbreaker 2.1.3，进程内状态、一次逻辑调用计数、单半开探测，取消及本地拒绝不改变状态；不实现第二套 Sentinel。
 
 服务发现的唯一合同见[配置与服务发现设计](02-配置与服务发现设计.md#service-discovery)。SDK 对外以逻辑服务名调用，项目代码不拼接 Nacos 地址或缓存实例列表。调用链传递经过验证的租户、主体、trace 和截止时间；不把客户端传入的身份头作为可信身份。
 
@@ -238,3 +283,7 @@ Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，生成时�
 - 2026-10-27，D-20261027-06：按源码工作区计划修订项目创建、来源、初始化与交付边界；验收见该计划，历史结果不追改。
 
 - 2026-10-27，D-20261027-07：同步已确认的根目录、SDK、template/tools/tests 与项目命令职责；行为规则仍按本文定义，运行验收状态见当前计划。
+
+- 2026-10-27，D-20261027-11：按已确认综合计划同步本主题增量；A 层实施，运行证据另记，历史验收不追改。
+
+- 2026-10-27，D-20261027-12：按用户确认补齐日志/错误/DB readiness/任务上下文/deadline/SDK参考；无 Docker 实测的边界保持。

@@ -33,9 +33,7 @@ def component_issues(doc: dict, filename: str) -> list[str]:
                     node = node[key]
                 routes(node)
             else:
-                if not (
-                    filename != "application-shared.yaml" and set(cloud) == {"sentinel"}
-                ):
+                if not (filename != "application-shared.yaml" and set(cloud) == {"sentinel"}):
                     raise ValueError("组件字段不合法")
                 if not (set(cloud["sentinel"]) == {"enabled"}):
                     raise ValueError("组件字段不合法")
@@ -52,9 +50,7 @@ def component_issues(doc: dict, filename: str) -> list[str]:
             ):
                 raise ValueError("组件字段不合法")
             c = doc["concurrency"]
-            if not (
-                isinstance(c, dict) and set(c) <= {"inbound_limit", "outbound_limits"}
-            ):
+            if not (isinstance(c, dict) and set(c) <= {"inbound_limit", "outbound_limits"}):
                 raise ValueError("组件字段不合法")
             if not (c.get("inbound_limit") is None or positive_int(c["inbound_limit"])):
                 raise ValueError("组件字段不合法")
@@ -69,12 +65,34 @@ def component_issues(doc: dict, filename: str) -> list[str]:
             ):
                 raise ValueError("组件字段不合法")
         http = doc.get("http", {})
+        if "circuit_breakers" in http:
+            breakers = http["circuit_breakers"]
+            if (
+                filename in {"application-shared.yaml", "identity-service.yaml", "api-gateway.yaml"}
+                or not isinstance(breakers, dict)
+                or len(breakers) > 64
+            ):
+                raise ValueError("熔断规则仅属于业务服务")
+            for name, rule in breakers.items():
+                if (
+                    not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name)
+                    or not isinstance(rule, dict)
+                    or not set(rule) <= {"enabled", "failure_threshold", "recovery_timeout_seconds"}
+                ):
+                    raise ValueError("非法熔断规则")
+                if type(rule.get("enabled", False)) is not bool:
+                    raise ValueError("非法熔断开关")
+                for field, maximum, default in (
+                    ("failure_threshold", 1000, 5),
+                    ("recovery_timeout_seconds", 3600, 30),
+                ):
+                    value = rule.get(field, default)
+                    if type(value) is not int or not 1 <= value <= maximum:
+                        raise ValueError("非法熔断阈值")
         for field in ("max_connections", "max_keepalive_connections"):
             if not (field not in http or positive_int(http[field])):
                 raise ValueError("组件字段不合法")
-        if not (
-            http.get("max_keepalive_connections", 32) <= http.get("max_connections", 64)
-        ):
+        if not (http.get("max_keepalive_connections", 32) <= http.get("max_connections", 64)):
             raise ValueError("组件字段不合法")
     except (AssertionError, KeyError, TypeError, AttributeError, ValueError):
         return [f"{filename}: 组件配置字段、类型或安全边界不合法"]
@@ -87,21 +105,18 @@ def routes(items):
     ids, paths = set(), set()
     for r in items:
         if not (
-            isinstance(r, dict)
-            and set(r) <= {"id", "uri", "predicates", "filters", "metadata"}
+            isinstance(r, dict) and set(r) <= {"id", "uri", "predicates", "filters", "metadata"}
         ):
             raise ValueError("组件字段不合法")
         if not (
-            re.fullmatch(r"[a-z][a-z0-9-]{0,79}", r["id"])
-            and not r["id"].startswith("framework-")
+            re.fullmatch(r"[a-z][a-z0-9-]{0,79}", r["id"]) and not r["id"].startswith("framework-")
         ):
             raise ValueError("组件字段不合法")
         if not (r["id"] not in ids):
             raise ValueError("组件字段不合法")
         ids.add(r["id"])
         if not (
-            re.fullmatch(r"lb://[a-z][a-z0-9-]{0,127}", r["uri"])
-            and r["uri"] != "lb://api-gateway"
+            re.fullmatch(r"lb://[a-z][a-z0-9-]{0,127}", r["uri"]) and r["uri"] != "lb://api-gateway"
         ):
             raise ValueError("组件字段不合法")
         predicates = r["predicates"]
@@ -113,21 +128,12 @@ def routes(items):
                 raise ValueError("组件字段不合法")
             path = p[5:]
         else:
-            if not (
-                isinstance(p, dict)
-                and set(p) == {"name", "args"}
-                and p["name"] == "Path"
-            ):
+            if not (isinstance(p, dict) and set(p) == {"name", "args"} and p["name"] == "Path"):
                 raise ValueError("组件字段不合法")
-            if not (
-                isinstance(p["args"], dict)
-                and set(p["args"]) in ({"pattern"}, {"_genkey_0"})
-            ):
+            if not (isinstance(p["args"], dict) and set(p["args"]) in ({"pattern"}, {"_genkey_0"})):
                 raise ValueError("组件字段不合法")
             path = next(iter(p["args"].values()))
-        if not (
-            re.fullmatch(r"/api/v1/[a-z][a-z0-9-]*/\*\*", path) and path not in paths
-        ):
+        if not (re.fullmatch(r"/api/v1/[a-z][a-z0-9-]*/\*\*", path) and path not in paths):
             raise ValueError("组件字段不合法")
         paths.add(path)
         if not (path != "/api/v1/identity/**" or r["uri"] == "lb://identity-service"):
@@ -138,15 +144,10 @@ def routes(items):
             and set(metadata) <= {"platform.audience", "platform.streaming"}
         ):
             raise ValueError("组件字段不合法")
-        if not (
-            re.fullmatch(
-                r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}", metadata["platform.audience"]
-            )
-        ):
+        if not (re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}", metadata["platform.audience"])):
             raise ValueError("组件字段不合法")
         if not (
-            "platform.streaming" not in metadata
-            or type(metadata["platform.streaming"]) is bool
+            "platform.streaming" not in metadata or type(metadata["platform.streaming"]) is bool
         ):
             raise ValueError("组件字段不合法")
         filters = r.get("filters", [])
@@ -172,15 +173,10 @@ def routes(items):
                 and a["rate-limiter"] == "#{@platformRedisRateLimiter}"
             ):
                 raise ValueError("组件字段不合法")
-            if not (
-                all(
-                    positive_int(a[k]) for k in a if k.startswith("redis-rate-limiter.")
-                )
-            ):
+            if not (all(positive_int(a[k]) for k in a if k.startswith("redis-rate-limiter."))):
                 raise ValueError("组件字段不合法")
             if not (
-                a["redis-rate-limiter.requestedTokens"]
-                <= a["redis-rate-limiter.burstCapacity"]
+                a["redis-rate-limiter.requestedTokens"] <= a["redis-rate-limiter.burstCapacity"]
             ):
                 raise ValueError("组件字段不合法")
 
@@ -222,9 +218,7 @@ def sentinel_rules(text: str, kind: str):
         names.add(name)
         if not (rule.get("limitApp", "default") == "default"):
             raise ValueError("组件字段不合法")
-        if not (
-            type(rule["grade"]) is int and rule["grade"] == (0 if kind == "flow" else 1)
-        ):
+        if not (type(rule["grade"]) is int and rule["grade"] == (0 if kind == "flow" else 1)):
             raise ValueError("组件字段不合法")
         count = rule["count"]
         if not (type(count) in (int, float) and math.isfinite(count) and count > 0):
@@ -233,8 +227,7 @@ def sentinel_rules(text: str, kind: str):
             if not (count <= 2147483647 and count == int(count)):
                 raise ValueError("组件字段不合法")
             if not (
-                type(rule.get("clusterMode", False)) is bool
-                and not rule.get("clusterMode", False)
+                type(rule.get("clusterMode", False)) is bool and not rule.get("clusterMode", False)
             ):
                 raise ValueError("组件字段不合法")
             for field in ("strategy", "controlBehavior"):
@@ -260,9 +253,7 @@ def rule_source_issues(source: Path) -> list[str]:
 
     issues = []
     for path in sorted(source.glob("*.json")):
-        match = re.fullmatch(
-            r"([a-z][a-z0-9-]*)-sentinel-(flow|degrade)\.json", path.name
-        )
+        match = re.fullmatch(r"([a-z][a-z0-9-]*)-sentinel-(flow|degrade)\.json", path.name)
         try:
             if not (match is not None and (source / f"{match[1]}.yaml").is_file()):
                 raise ValueError("组件字段不合法")
@@ -272,12 +263,7 @@ def rule_source_issues(source: Path) -> list[str]:
     for path in sorted(source.glob("*.yaml")):
         try:
             doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            enabled = (
-                doc.get("spring", {})
-                .get("cloud", {})
-                .get("sentinel", {})
-                .get("enabled")
-            )
+            enabled = doc.get("spring", {}).get("cloud", {}).get("sentinel", {}).get("enabled")
             if enabled is True:
                 for kind in ("flow", "degrade"):
                     if not (source / f"{path.stem}-sentinel-{kind}.json").is_file():

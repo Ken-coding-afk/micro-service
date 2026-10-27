@@ -66,6 +66,12 @@ public class FederationConfiguration {
         "/identity/external/**",
         "/oauth2/authorization/*",
         "/login/oauth2/code/*");
+    http.headers(
+        headers ->
+            headers.contentSecurityPolicy(
+                csp ->
+                    csp.policyDirectives(
+                        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")));
     http.authorizeHttpRequests(
         auth ->
             auth.requestMatchers(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 import uuid
@@ -76,3 +77,41 @@ def request_deadline(default_seconds: float = 10) -> float:
     context = current_context.get()
     local = time.time() + default_seconds
     return min(local, context.deadline) if context and context.deadline is not None else local
+
+
+def remaining_seconds(default_seconds: float = 10) -> float:
+    """剩余预算供业务传给成熟客户端；不会终止已提交的写入。"""
+    from .errors import DeadlineExceeded
+
+    if not math.isfinite(default_seconds) or default_seconds <= 0:
+        raise ValueError("默认预算必须是有限正数")
+    remaining = request_deadline(default_seconds) - time.time()
+    if remaining <= 0:
+        raise DeadlineExceeded()
+    return remaining
+
+
+def check_deadline() -> None:
+    """协作检查点；无 deadline 时不人为给后台工作增加 HTTP 预算。"""
+    from .errors import DeadlineExceeded
+
+    context = current_context.get()
+    if context and context.deadline is not None and context.deadline <= time.time():
+        raise DeadlineExceeded()
+
+
+@contextmanager
+def task_context(*, tenant_id: uuid.UUID, service: str, timeout_seconds: float):
+    """仅供验证过来源的任务入口；不是认证/授权接口，不继承请求令牌。"""
+    if current_context.get() is not None:
+        raise ValueError("独立任务必须从干净上下文启动")
+    if not isinstance(tenant_id, uuid.UUID) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", service):
+        raise ValueError("任务必须声明合法租户与服务")
+    if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 86400:
+        raise ValueError("任务预算必须大于零且不超过24小时")
+    with request_context(
+        tenant_id=tenant_id,
+        principal_id="service:" + service,
+        deadline=time.time() + timeout_seconds,
+    ) as context:
+        yield context

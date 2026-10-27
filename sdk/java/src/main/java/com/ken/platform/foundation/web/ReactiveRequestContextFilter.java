@@ -34,17 +34,27 @@ public final class ReactiveRequestContextFilter implements WebFilter, Ordered {
     exchange.getAttributes().put(RequestContexts.ATTRIBUTE, context);
     exchange.getResponse().getHeaders().set("X-Request-Id", context.requestId());
     return Mono.defer(() -> chain.filter(exchange))
-        .contextWrite(reactor -> reactor.put(CallContext.class, context))
         .onErrorResume(
-            PlatformException.class,
-            error -> {
+            Exception.class,
+            failure -> {
+              if (!(failure instanceof PlatformException)
+                  && !ApiErrors.accepts(exchange.getRequest().getPath().value()))
+                return Mono.error(failure);
+              PlatformException error =
+                  failure instanceof org.springframework.web.bind.support.WebExchangeBindException
+                      ? new PlatformException("VALIDATION_ERROR", "请求参数不合法", 400)
+                      : ApiErrors.classify(failure);
               if (exchange.getResponse().isCommitted()) {
-                return Mono.error(error);
+                return Mono.error(failure);
               }
               exchange
                   .getResponse()
                   .setStatusCode(org.springframework.http.HttpStatusCode.valueOf(error.status()));
               exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+              exchange.getResponse().getHeaders().putAll(ApiErrors.headers(failure));
+              if (error.status() == 500)
+                org.slf4j.LoggerFactory.getLogger(getClass())
+                    .error("请求处理失败 type={}", failure.getClass().getSimpleName());
               return exchange
                   .getResponse()
                   .writeWith(
@@ -53,7 +63,8 @@ public final class ReactiveRequestContextFilter implements WebFilter, Ordered {
                               .getResponse()
                               .bufferFactory()
                               .wrap(RequestContexts.error(error, context))));
-            });
+            })
+        .contextWrite(reactor -> reactor.put(CallContext.class, context));
   }
 
   @Override

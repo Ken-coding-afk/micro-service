@@ -29,14 +29,17 @@ async def test_lifespan_assembles_once_in_order_and_closes_after_failure(monkeyp
         parameters=SimpleNamespace(model_dump=lambda: {"business": {"max_page_size": 40}}),
         http=AsyncMock(),
         ready=True,
+        is_ready=AsyncMock(side_effect=[False, True]),
         discovery=object(),
         stop=AsyncMock(),
         watch=AsyncMock(),
     )
 
-    async def start(*, checks):
+    async def start(*, checks, readiness_checks):
         for check in checks:
             await check()
+        assert len(readiness_checks) == 1
+        assert await readiness_checks[0]()
 
     runtime.start = start
     order = []
@@ -57,6 +60,10 @@ async def test_lifespan_assembles_once_in_order_and_closes_after_failure(monkeyp
     monkeypatch.setattr(main.ResourceIdentitySettings, "from_environment", lambda _: object())
     monkeypatch.setattr(main, "ResourceIntrospector", lambda *args: object())
     monkeypatch.setattr(main, "database_url", lambda: "fixture")
+    database = SimpleNamespace(verify=AsyncMock(), check=AsyncMock(return_value=True))
+    monkeypatch.setattr(main, "DatabaseReadiness", lambda *args: database)
+    monkeypatch.setenv("DB_USER", "runtime")
+    monkeypatch.setenv("DB_NAME", "business")
     monkeypatch.setattr(main, "create_async_engine", lambda *a, **k: engine)
     monkeypatch.setattr(main, "async_sessionmaker", lambda *a, **k: Mock())
     monkeypatch.setattr(main, "resource_identity_readiness", AsyncMock())
@@ -69,6 +76,13 @@ async def test_lifespan_assembles_once_in_order_and_closes_after_failure(monkeyp
             assert isinstance(app.state.items, ItemService)
             assert app.state.items.settings.max_page_size == 40
             assert isinstance(app.state.peer, PeerClient)
+            endpoint = next(
+                route.endpoint
+                for route in app.routes
+                if getattr(route, "path", "") == "/actuator/health/readiness"
+            )
+            assert (await endpoint()).status_code == 503
+            assert (await endpoint()).status_code == 200
             raise ValueError("application fixture")
     runtime.stop.assert_awaited_once()
     client.aclose.assert_awaited_once()

@@ -66,6 +66,12 @@ public class BrowserLoginConfiguration {
       throws Exception {
     http.securityMatcher(
         "/identity/login", "/identity/password/initial", "/identity/session", "/identity/logout");
+    http.headers(
+        headers ->
+            headers.contentSecurityPolicy(
+                csp ->
+                    csp.policyDirectives(
+                        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")));
     http.authenticationProvider(new LoginAuthentication(service));
     http.authorizeHttpRequests(
         requests ->

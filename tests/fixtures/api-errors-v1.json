@@ -1,0 +1,12 @@
+{
+  "test_only": true,
+  "cases": [
+    {"name":"validation","method":"GET","path":"/api/validation?value=bad","status":400,"code":"VALIDATION_ERROR"},
+    {"name":"malformed","method":"POST","path":"/api/body","body":"{bad","status":400,"code":"INVALID_REQUEST"},
+    {"name":"missing","method":"GET","path":"/api/missing","status":404,"code":"NOT_FOUND"},
+    {"name":"method","method":"POST","path":"/api/validation","status":405,"code":"METHOD_NOT_ALLOWED"},
+    {"name":"unknown","method":"GET","path":"/api/failure","status":500,"code":"INTERNAL_ERROR"},
+    {"name":"busy","method":"GET","path":"/api/busy","status":429,"code":"SERVICE_BUSY"},
+    {"name":"timeout","method":"GET","path":"/api/timeout","status":504,"code":"UPSTREAM_TIMEOUT"}
+  ]
+}

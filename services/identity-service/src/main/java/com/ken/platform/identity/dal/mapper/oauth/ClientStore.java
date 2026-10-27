@@ -100,6 +100,17 @@ public class ClientStore {
         .orElse(null);
   }
 
+  public int replaceBootstrapDigest(String purpose, String id, String before, String after) {
+    if (!TransactionSynchronizationManager.isActualTransactionActive())
+      throw new IllegalStateException("维护摘要更新必须在事务内");
+    return jdbc.update(
+        "UPDATE sys_identity_bootstrap_client SET definition_digest=? WHERE purpose=? AND registered_client_id=? AND definition_digest=?",
+        after,
+        purpose,
+        id,
+        before);
+  }
+
   public void rememberBootstrap(String purpose, String id, String digest) {
     jdbc.update(
         "INSERT INTO sys_identity_bootstrap_client(purpose,registered_client_id,definition_digest) VALUES(?,?,?)",

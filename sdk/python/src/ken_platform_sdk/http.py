@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
+from typing import TypeVar
 from urllib.parse import urlsplit
 
 import httpx
 from anyio import CapacityLimiter
+from pydantic import TypeAdapter, ValidationError
 
+from .circuit import DependencyCircuit, RemoteFailure
 from .concurrency import admission
 from .config import ConcurrencyParameters, HttpParameters
 from .context import current_context, request_deadline
@@ -16,8 +20,53 @@ from .discovery import ServiceDiscovery
 from .errors import DeadlineExceeded, DependencyUnavailable, PlatformError
 from .observation import ProtectionMetrics
 
+T = TypeVar("T")
+
 
 class ServiceHttpClient:
+    async def request_model(
+        self,
+        service: str,
+        method: str,
+        path: str,
+        response_type: type[T],
+        *,
+        json: object | None = None,
+    ) -> T:
+        """复用 raw 传输；DTO 必填/可空规则由业务的 Pydantic 模型声明。"""
+        remaining = request_deadline(self.parameters.response_budget_seconds) - time.time()
+        if remaining <= 0:
+            raise DeadlineExceeded()
+        started = time.monotonic()
+        try:
+            async with asyncio.timeout(remaining):
+                response = await self.request(service, method, path, json=json)
+                if not response.is_success:
+                    code = "DEPENDENCY_REJECTED"
+                    try:
+                        value = response.json() if len(response.content) <= 65536 else {}
+                        candidate = value.get("code") if isinstance(value, dict) else None
+                        if isinstance(candidate, str) and re.fullmatch(
+                            r"[A-Z][A-Z0-9_]{0,63}", candidate
+                        ):
+                            code = candidate
+                    except ValueError:
+                        pass
+                    raise PlatformError(code, "依赖未返回成功响应", response.status_code)
+                if response.status_code == 204 and response_type is type(None):
+                    return None  # type: ignore[return-value]
+                try:
+                    result = TypeAdapter(response_type).validate_json(response.content, strict=True)
+                except (ValidationError, ValueError, TypeError):
+                    raise PlatformError(
+                        "DEPENDENCY_INVALID_RESPONSE", "依赖响应不符合声明的类型", 502
+                    ) from None
+                if time.monotonic() - started >= remaining:
+                    raise DeadlineExceeded()
+                return result
+        except TimeoutError:
+            raise DeadlineExceeded() from None
+
     def __init__(
         self,
         discovery: ServiceDiscovery,
@@ -30,6 +79,15 @@ class ServiceHttpClient:
         self.discovery = discovery
         self.client = client
         self.parameters = parameters or HttpParameters()
+        self._circuits = {
+            name: DependencyCircuit(name, rule, self.metrics)
+            for name, rule in self.parameters.circuit_breakers.items()
+            if rule.enabled
+        }
+        for name, circuit in self._circuits.items():
+            self.metrics.circuit.labels(name).set_function(
+                lambda circuit=circuit: {"closed": 0, "open": 1, "half_open": 2}[circuit.state]
+            )
         self._limits = {
             service: CapacityLimiter(limit)
             for service, limit in (concurrency or ConcurrencyParameters()).outbound_limits.items()
@@ -48,7 +106,36 @@ class ServiceHttpClient:
         with admission(
             self._limits.get(service), metrics=self.metrics, resource="http.outbound/" + service
         ):
-            return await self._request(service, method, path, json=json)
+            circuit = self._circuits.get(service)
+            if circuit is None:
+                return await self._request(service, method, path, json=json)
+            response = None
+            failure = None
+
+            async def call():
+                nonlocal response, failure
+                # 发现失败属于本地准入异常；开路时不应查询实例覆盖熔断错误。
+                self.discovery.choose(service)
+                try:
+                    response = await self._request(service, method, path, json=json)
+                except (DependencyUnavailable, DeadlineExceeded) as error:
+                    if not isinstance(
+                        error.__cause__, (httpx.TransportError, httpx.TimeoutException)
+                    ):
+                        raise
+                    failure = error
+                    raise RemoteFailure() from None
+                if response.status_code >= 500:
+                    raise RemoteFailure()
+                return response
+
+            try:
+                return await circuit.execute(call)
+            except RemoteFailure:
+                if failure is not None:
+                    raise failure from None
+                assert response is not None
+                return response  # raw HTTP 接口仍交付原 5xx，类型化入口统一解释。
 
     async def _request(
         self, service: str, method: str, path: str, *, json: object | None = None

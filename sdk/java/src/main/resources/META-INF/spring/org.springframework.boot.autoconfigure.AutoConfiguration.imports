@@ -5,3 +5,4 @@ com.ken.platform.foundation.config.PlatformDataAutoConfiguration
 com.ken.platform.foundation.config.PlatformMybatisAutoConfiguration
 com.ken.platform.foundation.config.PlatformResourceSecurityAutoConfiguration
 com.ken.platform.foundation.config.PlatformSentinelAutoConfiguration
+com.ken.platform.foundation.config.PlatformMetricsAutoConfiguration

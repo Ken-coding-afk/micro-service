@@ -17,6 +17,12 @@ import org.springframework.context.annotation.Configuration;
 @AutoConfiguration
 public class PlatformAutoConfiguration {
   @Bean
+  @ConditionalOnClass(name = "reactor.core.publisher.Hooks")
+  org.springframework.beans.factory.InitializingBean platformLogContext() {
+    return com.ken.platform.foundation.http.CallContexts::enableReactorPropagation;
+  }
+
+  @Bean
   @ConditionalOnMissingBean
   Clock platformClock() {
     return Clock.systemUTC();

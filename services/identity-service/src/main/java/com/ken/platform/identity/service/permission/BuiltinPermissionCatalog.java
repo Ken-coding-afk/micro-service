@@ -114,6 +114,7 @@ public final class BuiltinPermissionCatalog {
     platform(rows, "client", "客户端", "platform.clients", "read", "manage");
     platform(rows, "security", "平台安全策略", "platform.security", "read", "manage");
     platform(rows, "audit", "平台审计", "platform.audit", "read");
+    platform(rows, "monitoring", "服务监控", "platform.monitoring", "read");
     return List.copyOf(rows);
   }
 

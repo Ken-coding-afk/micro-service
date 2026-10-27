@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from tools.config import contract
 from test_config_validation import valid_values
+
+from scripts.config import contract
 
 
 def test_new_domain_service_uses_existing_validation(tmp_path):

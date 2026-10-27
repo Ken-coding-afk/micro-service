@@ -8,3 +8,8 @@ concurrency:
 http:
   max_connections: 64
   max_keepalive_connections: 32
+  circuit_breakers:
+    sample-java-service:
+      enabled: true
+      failure_threshold: 5
+      recovery_timeout_seconds: 30

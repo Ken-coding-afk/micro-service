@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.config.contract import ENV_FIELDS, NACOS_FORBIDDEN_KEYS, validate_nacos_source
+from scripts.config.contract import ENV_FIELDS, NACOS_FORBIDDEN_KEYS, validate_nacos_source
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = json.loads(

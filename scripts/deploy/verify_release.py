@@ -101,7 +101,36 @@ def validate(root: Path, release: dict, project: str, environment: str) -> None:
                 raise ValueError("迁移文件未登记摘要")
 
 
-def compose(root: Path, release: dict, env_file: Path, services: list[str]) -> None:
+def monitoring_bindings(config: dict, services: list[str], source_env: dict) -> None:
+    profiles = source_env.get("COMPOSE_PROFILES", "")
+    enabled = "monitoring" in profiles.split(",")
+    for name in services:
+        item = config.get("services", {}).get(name, {})
+        values = item.get("environment", {})
+        if name == "api-gateway" and values.get("COMPOSE_PROFILES", "") != profiles:
+            raise ValueError("应用 Compose 与组件环境的 COMPOSE_PROFILES 不一致")
+        if name == "nginx":
+            continue
+        port = values.get("MANAGEMENT_SERVER_PORT") or values.get("METRICS_PORT")
+        if enabled:
+            if (
+                not port
+                or not str(port).isdigit()
+                or not 1 <= int(port) <= 65535
+                or str(port) == str(values.get("SERVICE_BIND_PORT"))
+            ):
+                raise ValueError("启用监控的服务必须配置独立采集端口")
+            if values.get("MANAGEMENT_SERVER_PORT") and set(
+                values.get("MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", "").split(",")
+            ) != {"health", "prometheus"}:
+                raise ValueError("Java 采集端点仅开放 health,prometheus")
+        elif port and str(port) not in {"0", "-1"}:
+            raise ValueError("关闭监控时仍残留采集监听绑定")
+
+
+def compose(
+    root: Path, release: dict, env_file: Path, services: list[str], source_env: dict | None = None
+) -> None:
     if not services or not set(services).issubset(release["images"]):
         raise ValueError("所选应用未登记在发行清单")
     command = [
@@ -125,6 +154,8 @@ def compose(root: Path, release: dict, env_file: Path, services: list[str]) -> N
     config = json.loads(result.stdout)
     if config.get("name") != f"{release['project']}-{release['environment']}-apps":
         raise ValueError("Compose 项目名未隔离项目与环境")
+    if source_env is not None:
+        monitoring_bindings(config, services, source_env)
     for name in services:
         item = config.get("services", {}).get(name, {})
         health = item.get("healthcheck", {})
@@ -184,7 +215,13 @@ def main():
         if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,127}", network):
             raise ValueError("网络名称不合法")
         if args.compose_env:
-            compose(root, release, args.compose_env, args.service)
+            compose(
+                root,
+                release,
+                args.compose_env,
+                args.service,
+                environment.values if args.environment_file else None,
+            )
         print(
             json.dumps(
                 {

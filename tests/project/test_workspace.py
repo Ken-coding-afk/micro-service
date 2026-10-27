@@ -8,11 +8,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import generation  # noqa: E402
+import package as packaging  # noqa: E402
 from build import business_dockerfile, copy_inputs  # noqa: E402
 from catalog import project_config
 from common import read_yaml, service_directory, write  # noqa: E402
 from create import create  # noqa: E402
-from local import generated, prepare_environment  # noqa: E402
+from init import generated, prepare_environment  # noqa: E402
 
 
 def options(root):
@@ -34,6 +35,10 @@ def workspace(tmp_path, monkeypatch):
 
 
 def test_independent_routes_permissions_and_source_dependencies(workspace):
+    assert not (workspace / "scripts/instructions.py").exists()
+    assert not (workspace / "scripts/generation.py").exists()
+    assert not (workspace / "tests/fixtures/federation").exists()
+    assert (workspace / "tests/acceptance/smoke.cjs").is_file()
     config = read_yaml(workspace / "config/development.yaml")
     assert set(config["services"]) == {"equipment-service", "inspection-service"}
     assert config["services"]["equipment-service"]["port"] == 48282
@@ -97,6 +102,58 @@ def test_second_same_language_service_is_not_same_resource(workspace):
 def test_bad_names_rejected(name):
     with pytest.raises(ValueError):
         generation.validate_name(name)
+
+
+def test_current_bindings_preserve_privilege_and_secret_boundaries(workspace):
+    import init as local
+    from catalog import database_resource
+
+    config = project_config(workspace)
+    env = {
+        "APP_ENV": "local",
+        "PROJECT_CODE": "equipment-platform",
+        "PUBLIC_ORIGIN": "http://localhost:18280",
+        "PG_HOST": "127.0.0.1",
+        "PG_PORT": "15432",
+        "PG_MODE": "self_hosted",
+        "NACOS_MODE": "self_hosted",
+        "NACOS_SERVER_ADDR": "127.0.0.1:8848",
+        "NACOS_NAMESPACE": "equipment-platform-local",
+        "NACOS_RUNTIME_USER": "runtime",
+        "NACOS_RUNTIME_PASSWORD": "fixture-nacos",
+    }
+    runtime = workspace / ".local/runtime"
+    local.generated(workspace, runtime / "api-gateway-secrets/bff.json", "{}")
+    local.generated(workspace, runtime / "api-gateway.env", "APP_ENV=local\n")
+    for record in config["services"].values():
+        resource = database_resource(workspace, record)["resource_id"]
+        write(workspace / f".local/secrets/{resource}-runtime.password", "fixture-db")
+    local.bind_business(workspace, config, env, "host.docker.internal")
+    for name in config["services"]:
+        values = local.env_values(runtime / f"{name}.env")
+        assert not any(k.startswith(("IDENTITY_", "REDIS_")) for k in values)
+        assert values["DB_USER"].endswith("_runtime")
+        assert {p.name for p in (runtime / f"{name}-secrets").iterdir()} == {
+            "database.password",
+            "introspection.password",
+            "nacos-runtime.password",
+        }
+    before = {p: p.read_bytes() for p in runtime.rglob("*") if p.is_file()}
+    local.bind_business(workspace, config, env, "host.docker.internal")
+    assert {p: p.read_bytes() for p in runtime.rglob("*") if p.is_file()} == before
+    secret = runtime / "equipment-service-secrets/introspection.password"
+    secret.write_text("rotated", encoding="utf-8")
+    with pytest.raises(ValueError, match="覆盖"):
+        local.bind_business(workspace, config, env, "host.docker.internal")
+    assert secret.read_text() == "rotated"
+
+
+def test_current_bindings_reject_production_before_writes(workspace):
+    import init as local
+
+    with pytest.raises(ValueError, match="local"):
+        local.bind_business(workspace, project_config(workspace), {"APP_ENV": "prod"}, "host")
+    assert not (workspace / ".local").exists()
 
 
 def test_nonempty_create_never_touches_target(tmp_path):
@@ -188,7 +245,7 @@ def test_repeat_init_preserves_explicit_host(workspace, monkeypatch):
 
 
 def test_new_service_selection_does_not_reset_existing_identity(workspace, monkeypatch):
-    import local
+    import init as local
 
     generation.service_files(workspace, "python", "scoring-service", "scoring", None)
     generation.register(workspace, "python", "scoring-service", "scoring", 49001, None)
@@ -212,7 +269,7 @@ def test_new_service_selection_does_not_reset_existing_identity(workspace, monke
 
 
 def test_invalid_config_stops_before_environment_or_docker(workspace, monkeypatch):
-    import local
+    import init as local
 
     write(workspace / "config/nacos/api-gateway.yaml", "unregistered_setting: true\n")
     monkeypatch.setattr(
@@ -232,7 +289,6 @@ def test_legacy_project_packaging_entry_is_retired():
 def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, monkeypatch):
     import json
 
-    import build
     from common import write_yaml
 
     config = project_config(workspace)
@@ -268,9 +324,9 @@ def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, mo
             "approval_reference": "test-confirmation",
         },
     )
-    monkeypatch.setattr(build, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(packaging, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        build.subprocess, "check_output", lambda *args, **kwargs: "sha256:" + "d" * 64
+        packaging.subprocess, "check_output", lambda *args, **kwargs: "sha256:" + "d" * 64
     )
     output = workspace / "dist/test"
     args = argparse.Namespace(
@@ -280,7 +336,7 @@ def test_deployment_bundle_has_migrations_but_no_source_or_secrets(workspace, mo
         release="0.1.0",
         web_root=None,
     )
-    build.bundle(workspace, args, config, identity)
+    packaging.bundle(workspace, args, config, identity)
     release = read_yaml(output / "deploy/release.yaml")
     assert [m["target"] for m in release["migrations"]] == [
         "identity-db",
@@ -369,7 +425,7 @@ def test_created_nacos_configuration_only_contains_selected_services(workspace):
 
 
 def test_initializer_passes_project_redis_template(workspace, monkeypatch):
-    import local
+    import init as local
 
     class StopBeforeInfrastructure(Exception):
         pass
@@ -423,7 +479,7 @@ def test_initialization_orders_config_identity_catalog_then_business_migration(
 ):
     from types import SimpleNamespace
 
-    import local
+    import init as local
 
     events = []
     env_path = workspace / ".local/environment.env"
