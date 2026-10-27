@@ -1,11 +1,35 @@
 log_level: INFO
-gateway:
-  routes:
-    - id: java-items
-      path: /api/v1/java-items/**
-      service: sample-java-service
-      audience: sample-java-service
-    - id: python-items
-      path: /api/v1/python-items/**
-      service: sample-python-service
-      audience: sample-python-service
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+          - id: java-items
+            uri: lb://sample-java-service
+            predicates:
+            - Path=/api/v1/java-items/**
+            metadata:
+              platform.audience: sample-java-service
+            filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantOrClientKeyResolver}'
+                rate-limiter: '#{@platformRedisRateLimiter}'
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 40
+                redis-rate-limiter.requestedTokens: 1
+          - id: python-items
+            uri: lb://sample-python-service
+            predicates:
+            - Path=/api/v1/python-items/**
+            metadata:
+              platform.audience: sample-python-service
+            filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantOrClientKeyResolver}'
+                rate-limiter: '#{@platformRedisRateLimiter}'
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 40
+                redis-rate-limiter.requestedTokens: 1

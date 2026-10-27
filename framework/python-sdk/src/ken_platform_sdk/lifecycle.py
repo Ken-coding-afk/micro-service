@@ -6,12 +6,14 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 
 import httpx
+from anyio import CapacityLimiter
 
 from .config import PlatformSettings, RuntimeParameters, load_runtime
 from .discovery import ServiceDiscovery
 from .errors import DependencyUnavailable
 from .http import ServiceHttpClient
 from .nacos import NacosProvider
+from .observation import ProtectionMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,19 @@ class PlatformRuntime:
         self._registration_attempted = False
         self._client: httpx.AsyncClient | None = None
         self.http: ServiceHttpClient | None = None
+        self.inbound: CapacityLimiter | None = None
+        self.metrics = ProtectionMetrics()
+
+    def install(self, app) -> None:
+        """在构建 FastAPI 应用时装配一次；参数在 start 校验后生效。"""
+        from .web import PlatformMiddleware
+
+        if getattr(app.state, "platform_runtime", None) is not None:
+            raise ValueError("运行时不能重复安装")
+        if any(m.cls is PlatformMiddleware for m in app.user_middleware):
+            raise ValueError("必须先安装 runtime，再安装资源安全")
+        app.add_middleware(PlatformMiddleware, runtime=self)
+        app.state.platform_runtime = self
 
     async def start(self, checks: Sequence[Callable[[], Awaitable[None]]] = ()) -> None:
         try:
@@ -37,8 +52,23 @@ class PlatformRuntime:
             logging.getLogger().setLevel(self.parameters.log_level)
             for check in checks:
                 await check()
-            self._client = httpx.AsyncClient(follow_redirects=False)
-            self.http = ServiceHttpClient(self.discovery, self._client, self.parameters.http)
+            limits = self.parameters.concurrency
+            self.inbound = CapacityLimiter(limits.inbound_limit) if limits.inbound_limit else None
+            self.metrics.enabled = self.parameters.observation.metrics_enabled
+            if self.inbound:
+                self.metrics.active.labels("http.inbound").set_function(
+                    lambda: self.inbound.borrowed_tokens if self.inbound else 0
+                )
+            self._client = httpx.AsyncClient(
+                follow_redirects=False,
+                limits=httpx.Limits(
+                    max_connections=self.parameters.http.max_connections,
+                    max_keepalive_connections=self.parameters.http.max_keepalive_connections,
+                ),
+            )
+            self.http = ServiceHttpClient(
+                self.discovery, self._client, self.parameters.http, limits, self.metrics
+            )
             await self.provider.watch_config(
                 ["application-shared.yaml", f"{self.settings.service_name}.yaml"],
                 self._refresh_config,
@@ -94,9 +124,11 @@ class PlatformRuntime:
             self.parameters is None
             or candidate.http != self.parameters.http
             or candidate.business != self.parameters.business
+            or candidate.concurrency != self.parameters.concurrency
         ):
             logger.warning("候选配置改变重启字段，拒绝在线应用")
             return False
         self.parameters = candidate
+        self.metrics.enabled = candidate.observation.metrics_enabled
         logging.getLogger().setLevel(candidate.log_level)
         return True

@@ -135,7 +135,8 @@ NACOS_FIELDS = {
     "project_display_name",
     "logo_url",
     "theme",
-    "gateway.routes",
+    "http.max_connections",
+    "http.max_keepalive_connections",
 }
 
 
@@ -346,14 +347,21 @@ def validate_nacos_source(source_dir: Path) -> list[str]:
                     )
         else:
             issues.append(f"不允许的 Data ID 文件: {path.name}")
-    return issues
+    try:
+        from .components import rule_source_issues
+    except ImportError:
+        from components import rule_source_issues
+    return issues + rule_source_issues(source_dir)
 
 
 def _check_forbidden(doc: dict, filename: str) -> list[str]:
     issues = []
     issues += _check_identity_brand(doc, filename)
-    if "gateway" in doc:
-        issues += _check_gateway_routes(doc["gateway"], filename)
+    try:
+        from .components import component_issues
+    except ImportError:
+        from components import component_issues
+    issues += component_issues(doc, filename)
     if "business" in doc and (
         filename == SHARED_DATA_ID or not isinstance(doc["business"], dict)
     ):
@@ -380,7 +388,9 @@ def _check_forbidden(doc: dict, filename: str) -> list[str]:
                 business_keys(child, depth + 1)
 
     business_keys(doc.get("business", {}))
-    for key in _flatten(doc):
+    for key in _flatten(
+        {k: v for k, v in doc.items() if k not in {"spring", "concurrency", "gateway"}}
+    ):
         leaf = key.rsplit(".", 1)[-1].upper()
         full_upper = key.replace(".", "_").upper()
         if leaf in NACOS_FORBIDDEN_KEYS or full_upper in NACOS_FORBIDDEN_KEYS:
@@ -453,77 +463,6 @@ def _check_identity_brand(doc: dict, filename: str) -> list[str]:
                 return invalid
         except ValueError:
             return invalid
-    return []
-
-
-def _check_gateway_routes(block: object, filename: str) -> list[str]:
-    """公开路由仅属 Gateway Data ID；字段合同与 Java GatewayRouteSpec 一致。"""
-    invalid = [f"{filename}: Gateway 显式路由字段、目标或路径不合法"]
-    if (
-        filename != "api-gateway.yaml"
-        or not isinstance(block, dict)
-        or set(block) != {"routes"}
-    ):
-        return invalid
-    routes = block["routes"]
-    if not isinstance(routes, list) or len(routes) > 64:
-        return invalid
-    identity_paths = {
-        "/.well-known/openid-configuration",
-        "/.well-known/oauth-authorization-server",
-        "/oauth2/authorize",
-        "/oauth2/token",
-        "/oauth2/introspect",
-        "/oauth2/revoke",
-        "/oauth2/jwks",
-        "/userinfo",
-        "/connect/logout",
-        "/identity/login",
-        "/identity/password/initial",
-        "/identity/session",
-        "/identity/logout",
-        "/identity/admin/**",
-        "/api/v1/identity/admin-config",
-    }
-    identifiers, paths = set(), set()
-    for route in routes:
-        if not isinstance(route, dict) or not set(route) <= {
-            "id",
-            "path",
-            "service",
-            "audience",
-        }:
-            return invalid
-        identifier, path, service = (
-            route.get(key) for key in ("id", "path", "service")
-        )
-        if not all(isinstance(value, str) for value in (identifier, path, service)):
-            return invalid
-        if (
-            not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", identifier)
-            or not re.fullmatch(r"[a-z][a-z0-9-]{0,127}", service)
-            or service == "api-gateway"
-            or identifier in identifiers
-            or path in paths
-        ):
-            return invalid
-        if re.fullmatch(r"/api/v1/[a-z][a-z0-9-]*/\*\*", path):
-            audience = route.get("audience")
-            if (
-                not isinstance(audience, str)
-                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}", audience)
-                or path == "/api/v1/identity/**"
-                and service != "identity-service"
-            ):
-                return invalid
-        elif (
-            path not in identity_paths
-            or service != "identity-service"
-            or "audience" in route
-        ):
-            return invalid
-        identifiers.add(identifier)
-        paths.add(path)
     return []
 
 

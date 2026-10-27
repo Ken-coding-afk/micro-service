@@ -1,0 +1,10 @@
+[
+  {
+    "resource": "http.outbound/sample-python-service",
+    "grade": 1,
+    "count": 0.5,
+    "minRequestAmount": 10,
+    "statIntervalMs": 10000,
+    "timeWindow": 20
+  }
+]

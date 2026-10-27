@@ -7,7 +7,7 @@
   <parent>
     <groupId>com.ken.platform</groupId>
     <artifactId>platform-parent</artifactId>
-    <version>1.0.0-rc.2</version>
+    <version>1.0.0-rc.3</version>
   </parent>
 
   <artifactId>foundation</artifactId>
@@ -16,6 +16,9 @@
   <description>Java 公共接入包：配置、身份、租户、HTTP、数据、消息与观测的统一装配（按技术职责分包，条件装配）</description>
 
   <dependencies>
+    <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-core</artifactId></dependency>
+<dependency><groupId>com.alibaba.csp</groupId><artifactId>sentinel-core</artifactId><optional>true</optional></dependency>
+<dependency><groupId>com.alibaba.csp</groupId><artifactId>sentinel-datasource-nacos</artifactId><optional>true</optional></dependency>
     <dependency>
       <groupId>com.alibaba.cloud</groupId>
       <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>

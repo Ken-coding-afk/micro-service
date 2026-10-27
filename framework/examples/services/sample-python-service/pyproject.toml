@@ -2,7 +2,7 @@
 name = "sample-python-service"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["ken-platform-sdk[db]==1.0.0rc2", "uvicorn==0.54.0"]
+dependencies = ["ken-platform-sdk[db]==1.0.0rc3", "uvicorn==0.54.0"]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,10 +1,10 @@
 package com.ken.platform.gateway.bff;
 
-import com.ken.platform.foundation.config.GatewayRouteSpec;
 import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.NacosRuntime;
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
 import com.ken.platform.foundation.discovery.ServiceInstance;
+import com.ken.platform.gateway.RouteFixtures;
 import com.ken.platform.gateway.config.ExternalBoundaryFilter;
 import com.ken.platform.gateway.security.GatewayForwardedHeaderFilter;
 import com.ken.platform.gateway.security.GatewayPrincipalContextFilter;
@@ -95,6 +95,7 @@ public final class GatewayBffProbe {
   @Import({
     GatewaySecurityConfiguration.class,
     ProbeBffConfiguration.class,
+    com.ken.platform.gateway.traffic.GatewayRedisConfiguration.class,
     BffEndpoints.class,
     ExternalBoundaryFilter.class,
     GatewayForwardedHeaderFilter.class,
@@ -104,15 +105,15 @@ public final class GatewayBffProbe {
   static class Fixture {
     @Bean
     RuntimeParameters platformParameters() {
-      return new RuntimeParameters(
-          "INFO",
-          2,
-          10,
-          1,
-          true,
-          List.of(
-              new GatewayRouteSpec(
-                  "identity-api", "/api/v1/identity/**", "identity-service", "identity-service")));
+      return RouteFixtures.parameters(
+          RouteFixtures.route(
+              "identity-api", "/api/v1/identity/**", "identity-service", "identity-service"));
+    }
+
+    @Bean
+    org.springframework.cloud.gateway.config.GatewayProperties gatewayProperties(
+        RuntimeParameters parameters) {
+      return RouteFixtures.properties(parameters);
     }
 
     @Bean

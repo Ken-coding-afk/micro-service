@@ -3,7 +3,6 @@ package com.ken.platform.gateway;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.ken.platform.foundation.config.GatewayRouteSpec;
 import com.ken.platform.foundation.config.PlatformAutoConfiguration;
 import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.NacosRuntime;
@@ -40,7 +39,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.cloud.gateway.config.GatewayProperties;
-import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -79,8 +77,8 @@ class GatewaySecurityTest {
   @Import({PlatformAutoConfiguration.class, GatewaySecurityConfiguration.class})
   static class ConfigurationFixture {
     @Bean
-    GatewayProperties properties() {
-      return new GatewayProperties();
+    GatewayProperties properties(RuntimeParameters parameters) {
+      return RouteFixtures.properties(parameters);
     }
 
     @Bean
@@ -123,58 +121,87 @@ class GatewaySecurityTest {
     }
 
     @Bean
-    WebHandler webHandler() {
-      return exchange ->
-          Mono.deferContextual(
-              reactor -> {
-                var context = reactor.get(CallContext.class);
-                var headers = exchange.getRequest().getHeaders();
-                var body = new HashMap<String, Object>();
-                body.put("subject", context.principalId());
-                body.put("tenant", context.tenantId());
-                body.put("request_id", context.requestId());
-                body.put(
-                    "metadata_forwarded",
-                    context.requestId().equals(headers.getFirst("X-Request-Id"))
-                        && String.valueOf(context.deadline().toEpochMilli())
-                            .equals(headers.getFirst("X-Request-Deadline"))
-                        && java.util.Objects.equals(
-                            context.traceparent(), headers.getFirst("traceparent")));
-                body.put("token_preserved", "user-token".equals(context.accessToken()));
-                body.put(
-                    "forged_headers_absent",
-                    !headers.containsHeader("X-User-Id")
-                        && !headers.containsHeader("X-Tenant-Id")
-                        && !headers.containsHeader("X-Service-Authorization"));
-                body.put(
-                    "protocol_basic_preserved",
-                    "Basic fixture".equals(headers.getFirst("Authorization")));
-                exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                return exchange
-                    .getResponse()
-                    .writeWith(
-                        Mono.just(
-                            exchange
-                                .getResponse()
-                                .bufferFactory()
-                                .wrap(JSON.writeValueAsBytes(body))));
-              });
+    WebHandler webHandler(
+        com.ken.platform.gateway.security.GatewayRoutes routes,
+        com.ken.platform.gateway.security.GatewayAuthenticationFilter auth,
+        GatewayPrincipalContextFilter principal) {
+      WebHandler terminal =
+          exchange ->
+              Mono.deferContextual(
+                  reactor -> {
+                    var context = reactor.get(CallContext.class);
+                    var headers = exchange.getRequest().getHeaders();
+                    var body = new HashMap<String, Object>();
+                    body.put("subject", context.principalId());
+                    body.put("tenant", context.tenantId());
+                    body.put("request_id", context.requestId());
+                    body.put(
+                        "metadata_forwarded",
+                        context.requestId().equals(headers.getFirst("X-Request-Id"))
+                            && String.valueOf(context.deadline().toEpochMilli())
+                                .equals(headers.getFirst("X-Request-Deadline"))
+                            && java.util.Objects.equals(
+                                context.traceparent(), headers.getFirst("traceparent")));
+                    body.put("token_preserved", "user-token".equals(context.accessToken()));
+                    body.put(
+                        "forged_headers_absent",
+                        !headers.containsHeader("X-User-Id")
+                            && !headers.containsHeader("X-Tenant-Id")
+                            && !headers.containsHeader("X-Service-Authorization"));
+                    body.put(
+                        "protocol_basic_preserved",
+                        "Basic fixture".equals(headers.getFirst("Authorization")));
+                    exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                    return exchange
+                        .getResponse()
+                        .writeWith(
+                            Mono.just(
+                                exchange
+                                    .getResponse()
+                                    .bufferFactory()
+                                    .wrap(JSON.writeValueAsBytes(body))));
+                  });
+      var builder =
+          new RouteLocatorBuilder(
+              new org.springframework.context.support.GenericApplicationContext());
+      return exchange -> {
+        if (exchange.getRequest().getPath().value().startsWith("/actuator/health"))
+          return terminal.handle(exchange);
+        var all = new java.util.ArrayList<>(routes.identityRoutes());
+        all.addAll(routes.definitions());
+        var definition =
+            all.stream()
+                .filter(
+                    d ->
+                        org.springframework.web.util.pattern.PathPatternParser.defaultInstance
+                            .parse(
+                                d.getPredicates().getFirst().getArgs().values().iterator().next())
+                            .matches(exchange.getRequest().getPath().pathWithinApplication()))
+                .findFirst();
+        if (definition.isEmpty()) {
+          exchange.getResponse().setStatusCode(org.springframework.http.HttpStatus.NOT_FOUND);
+          return exchange.getResponse().setComplete();
+        }
+        var d = definition.get();
+        var route =
+            org.springframework.cloud.gateway.route.Route.async(d)
+                .asyncPredicate(e -> Mono.just(true))
+                .build();
+        exchange
+            .getAttributes()
+            .put(
+                org.springframework.cloud.gateway.support.ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR,
+                route);
+        return auth.filter(exchange, e -> principal.filter(e, terminal::handle));
+      };
     }
   }
 
   private RuntimeParameters parameters() {
-    return new RuntimeParameters(
-        "INFO",
-        2,
-        10,
-        1,
-        true,
-        List.of(
-            new GatewayRouteSpec(
-                "documents", "/api/v1/documents/**", "document-service", "documents"),
-            new GatewayRouteSpec(
-                "analysis", "/api/v1/analysis-jobs/**", "analysis-service", "analysis"),
-            new GatewayRouteSpec("token", "/oauth2/token", "identity-service", null)));
+    return RouteFixtures.parameters(
+        RouteFixtures.route("documents", "/api/v1/documents/**", "document-service", "documents"),
+        RouteFixtures.route(
+            "analysis", "/api/v1/analysis-jobs/**", "analysis-service", "analysis"));
   }
 
   @BeforeEach
@@ -301,14 +328,14 @@ class GatewaySecurityTest {
   }
 
   @Test
-  void anonymousBrandDoesNotOpenAnyApiWhenNoPublicIdentityRouteOrBffWasEnabled() throws Exception {
+  void fixedAnonymousBrandDoesNotRequireBearerOrCreateSession() throws Exception {
     var brand =
         http.send(
             HttpRequest.newBuilder(URI.create(origin + "/api/v1/identity/admin-config"))
                 .GET()
                 .build(),
             HttpResponse.BodyHandlers.ofString());
-    assertThat(brand.statusCode()).isEqualTo(401);
+    assertThat(brand.statusCode()).isEqualTo(200);
     assertThat(readers).isEmpty();
     assertThat(brand.headers().allValues("Set-Cookie")).isEmpty();
   }
@@ -339,15 +366,12 @@ class GatewaySecurityTest {
     assertThat(get("/api/v1/analysis-jobs/job", "user-token").statusCode()).isEqualTo(200);
     assertThat(readers).containsExactly("gateway-doc:s-doc", "gateway-analysis:s-analysis");
     assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
-    var routes =
-        application
-            .getBean("platformExplicitRoutes", RouteLocator.class)
-            .getRoutes()
-            .collectList()
-            .block();
-    assertThat(routes)
+    assertThat(
+            application
+                .getBean(com.ken.platform.gateway.security.GatewayRoutes.class)
+                .definitions())
         .extracting(route -> route.getUri().toString())
-        .containsExactly("lb://document-service", "lb://analysis-service", "lb://identity-service");
+        .containsExactly("lb://document-service", "lb://analysis-service");
   }
 
   @Test
@@ -366,7 +390,7 @@ class GatewaySecurityTest {
     assertThat(get("/api/v1/documents/item", "user-token").statusCode()).isEqualTo(200);
     active.set(false);
     assertThat(get("/api/v1/documents/item", "user-token").statusCode()).isEqualTo(401);
-    assertThat(get("/api/v1/not-registered/item", "user-token").statusCode()).isEqualTo(401);
+    assertThat(get("/api/v1/not-registered/item", "user-token").statusCode()).isEqualTo(404);
   }
 
   @Test

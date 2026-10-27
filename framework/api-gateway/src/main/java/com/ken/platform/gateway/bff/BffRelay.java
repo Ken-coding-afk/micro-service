@@ -84,6 +84,21 @@ public final class BffRelay implements GlobalFilter, Ordered {
                                             if (parent == null)
                                               return Mono.error(
                                                   new IllegalStateException("缺少 BFF 请求上下文"));
+                                            exchange
+                                                .getAttributes()
+                                                .put(
+                                                    com.ken.platform.gateway.traffic.RateSubject
+                                                        .ATTRIBUTE,
+                                                    new com.ken.platform.gateway.traffic
+                                                        .RateSubject(
+                                                        current.type(),
+                                                        current.tenant() == null
+                                                            ? null
+                                                            : current.tenant().toString(),
+                                                        current.subject(),
+                                                        client
+                                                            .getClientRegistration()
+                                                            .getClientId()));
                                             String token = client.getAccessToken().getTokenValue();
                                             var call =
                                                 new CallContext(

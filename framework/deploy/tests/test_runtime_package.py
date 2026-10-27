@@ -17,7 +17,7 @@ spec.loader.exec_module(release)
 
 def sources(root):
     for name in (
-        "foundation/target/foundation-1.0.0-rc.2.jar",
+        "foundation/target/foundation-1.0.0-rc.3.jar",
         "foundation/pom.xml",
         "api-gateway/target/api-gateway.jar",
         "pom.xml",

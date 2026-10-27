@@ -5,13 +5,15 @@ import time
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .concurrency import admission
 from .context import request_context
 from .errors import PlatformError
 
 
 class PlatformMiddleware:
-    def __init__(self, app: ASGIApp):
+    def __init__(self, app: ASGIApp, runtime=None):
         self.app = app
+        self.runtime = runtime
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -47,7 +49,13 @@ class PlatformMiddleware:
                 await send(message)
 
             try:
-                await self.app(scope, receive, send_with_request_id)
+                path = scope.get("path", "")
+                protected = path.startswith(("/api/v1/", "/internal/v1/"))
+                limiter = self.runtime.inbound if self.runtime and protected else None
+                with admission(
+                    limiter, inbound=True, metrics=self.runtime.metrics if self.runtime else None
+                ):
+                    await self.app(scope, receive, send_with_request_id)
             except PlatformError as exc:
                 if response_started:
                     raise  # 已建立的流由流协议处理/关闭，不能再伪造一个 HTTP 状态。

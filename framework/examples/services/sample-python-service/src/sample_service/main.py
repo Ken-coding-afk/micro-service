@@ -207,6 +207,7 @@ def create_app():
             )
         return result.json()
 
+    runtime.install(app)
     install_resource_security(app, introspector)
     return app
 

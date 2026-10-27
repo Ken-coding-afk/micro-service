@@ -1,3 +1,10 @@
 log_level: INFO
 business:
   max_page_size: 50
+concurrency:
+  inbound_limit: 64
+  outbound_limits:
+    sample-java-service: 32
+http:
+  max_connections: 64
+  max_keepalive_connections: 32

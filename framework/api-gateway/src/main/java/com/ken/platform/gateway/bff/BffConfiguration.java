@@ -6,9 +6,6 @@ import com.ken.platform.foundation.discovery.PlatformReadinessCheck;
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.gateway.security.GatewayErrors;
-import io.lettuce.core.ClientOptions;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Set;
@@ -18,9 +15,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
-import org.springframework.data.redis.connection.RedisPassword;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -54,33 +48,6 @@ public class BffConfiguration {
     return new BffClientSettings(environment);
   }
 
-  @Bean(destroyMethod = "destroy")
-  LettuceConnectionFactory bffRedisConnectionFactory(Environment environment) throws Exception {
-    String host = environment.getRequiredProperty("REDIS_HOST");
-    int port = Integer.parseInt(environment.getRequiredProperty("REDIS_PORT"));
-    Path file = Path.of(environment.getRequiredProperty("REDIS_PASSWORD_SECRET_FILE"));
-    if (!host.matches("[A-Za-z0-9.:-]{1,253}")
-        || port < 1
-        || port > 65535
-        || !file.isAbsolute()
-        || !Files.isRegularFile(file)
-        || Files.size(file) > 4096) throw new IllegalArgumentException("BFF Redis 绑定不合法");
-    var config = new RedisStandaloneConfiguration(host, port);
-    String password = Files.readString(file).strip();
-    if (password.isEmpty()) throw new IllegalArgumentException("BFF Redis 秘密不能为空");
-    config.setPassword(RedisPassword.of(password));
-    var client =
-        LettuceClientConfiguration.builder()
-            .commandTimeout(Duration.ofSeconds(2))
-            .shutdownTimeout(Duration.ofSeconds(1))
-            .clientOptions(
-                ClientOptions.builder()
-                    .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
-                    .build());
-    if (!environment.getRequiredProperty("APP_ENV").equals("local")) client.useSsl();
-    return new LettuceConnectionFactory(config, client.build());
-  }
-
   @Bean
   ReactiveRedisTemplate<String, Object> bffSessionRedis(
       @Qualifier("bffRedisConnectionFactory") LettuceConnectionFactory factory) {
@@ -93,12 +60,6 @@ public class BffConfiguration {
             .hashKey(strings)
             .hashValue(serializer)
             .build());
-  }
-
-  @Bean
-  ReactiveStringRedisTemplate bffOperationRedis(
-      @Qualifier("bffRedisConnectionFactory") LettuceConnectionFactory factory) {
-    return new ReactiveStringRedisTemplate(factory);
   }
 
   @Bean(name = "webSessionManager")
@@ -180,64 +141,9 @@ public class BffConfiguration {
   }
 
   @Bean
-  org.springframework.cloud.gateway.route.RouteLocator bffRoutes(
-      org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder builder,
-      BffClientSettings settings,
-      RuntimeParameters parameters) {
-    var routes = builder.routes();
-    var identityPaths =
-        com.ken.platform.foundation.config.GatewayRouteSpec.identityPaths().stream()
-            .sorted()
-            .toList();
-    var configured =
-        parameters.gatewayRoutes().stream()
-            .map(com.ken.platform.foundation.config.GatewayRouteSpec::path)
-            .collect(java.util.stream.Collectors.toSet());
-    for (int index = 0; index < identityPaths.size(); index++) {
-      String path = identityPaths.get(index);
-      if (!configured.contains(path))
-        routes.route(
-            "bff-identity-public-" + index,
-            predicate -> predicate.path(path).uri("lb://identity-service"));
-    }
-    for (var namespace : settings.namespaces()) {
-      if (namespace == BffNamespace.WEB) {
-        for (var route : parameters.gatewayRoutes())
-          if (route.api())
-            routes.route(
-                "bff-web-" + route.id(),
-                predicate ->
-                    predicate
-                        .path(namespace.path() + route.path())
-                        .filters(
-                            filters ->
-                                filters
-                                    .stripPrefix(2)
-                                    .removeRequestHeader("Cookie")
-                                    .removeResponseHeader("Set-Cookie"))
-                        .metadata("bff.namespace", namespace.name())
-                        .metadata("bff.audience", route.audience())
-                        .uri("lb://" + route.service()));
-      } else {
-        routes.route(
-            "bff-identity-" + namespace.name().toLowerCase(java.util.Locale.ROOT),
-            predicate ->
-                predicate
-                    .path(namespace.path() + "/api/**")
-                    .filters(
-                        filters ->
-                            filters
-                                .rewritePath(
-                                    namespace.path() + "/api/(?<remaining>.*)",
-                                    "/api/v1/identity/${remaining}")
-                                .removeRequestHeader("Cookie")
-                                .removeResponseHeader("Set-Cookie"))
-                    .metadata("bff.namespace", namespace.name())
-                    .metadata("bff.audience", "identity-service")
-                    .uri("lb://identity-service"));
-      }
-    }
-    return routes.build();
+  org.springframework.cloud.gateway.route.RouteDefinitionLocator bffRoutes(
+      BffClientSettings settings, com.ken.platform.gateway.security.GatewayRoutes routes) {
+    return () -> reactor.core.publisher.Flux.fromIterable(routes.bffRoutes(settings.namespaces()));
   }
 
   @Bean

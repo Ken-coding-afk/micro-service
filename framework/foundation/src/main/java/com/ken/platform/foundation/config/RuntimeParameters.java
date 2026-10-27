@@ -20,20 +20,22 @@ public record RuntimeParameters(
     double responseBudgetSeconds,
     int getRetryExtra,
     boolean metricsEnabled,
-    List<GatewayRouteSpec> gatewayRoutes,
     IdentityAdminBrand identityAdminBrand,
-    Map<String, Object> business) {
+    Map<String, Object> business,
+    Map<String, Object> spring,
+    int maxConnections) {
   private static final Set<String> FIELDS =
       Set.of(
           "log_level",
           "http.connect_timeout_seconds",
           "http.response_budget_seconds",
           "http.get_retry_extra",
+          "http.max_connections",
           "observation.metrics_enabled");
 
   public RuntimeParameters {
-    gatewayRoutes = List.copyOf(gatewayRoutes);
     business = freezeBusiness(business);
+    spring = java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(spring));
     if (identityAdminBrand == null
         || logLevel == null
         || !Set.of("DEBUG", "INFO", "WARN", "WARNING", "ERROR").contains(logLevel)
@@ -44,28 +46,14 @@ public record RuntimeParameters(
         || responseBudgetSeconds <= 0
         || responseBudgetSeconds > 300
         || getRetryExtra < 0
-        || getRetryExtra > 1) {
+        || getRetryExtra > 1
+        || maxConnections < 1) {
       throw new IllegalArgumentException("运行参数类型或范围不合法");
     }
   }
 
-  public RuntimeParameters(
-      String logLevel,
-      double connectTimeoutSeconds,
-      double responseBudgetSeconds,
-      int getRetryExtra,
-      boolean metricsEnabled,
-      List<GatewayRouteSpec> gatewayRoutes,
-      IdentityAdminBrand identityAdminBrand) {
-    this(
-        logLevel,
-        connectTimeoutSeconds,
-        responseBudgetSeconds,
-        getRetryExtra,
-        metricsEnabled,
-        gatewayRoutes,
-        identityAdminBrand,
-        Map.of());
+  public boolean sentinelEnabled() {
+    return NativeComponentSettings.sentinelEnabled(spring);
   }
 
   private static Map<String, Object> freezeBusiness(Map<?, ?> source) {
@@ -109,23 +97,6 @@ public record RuntimeParameters(
       double connectTimeoutSeconds,
       double responseBudgetSeconds,
       int getRetryExtra,
-      boolean metricsEnabled,
-      List<GatewayRouteSpec> gatewayRoutes) {
-    this(
-        logLevel,
-        connectTimeoutSeconds,
-        responseBudgetSeconds,
-        getRetryExtra,
-        metricsEnabled,
-        gatewayRoutes,
-        IdentityAdminBrand.defaults());
-  }
-
-  public RuntimeParameters(
-      String logLevel,
-      double connectTimeoutSeconds,
-      double responseBudgetSeconds,
-      int getRetryExtra,
       boolean metricsEnabled) {
     this(
         logLevel,
@@ -133,7 +104,10 @@ public record RuntimeParameters(
         responseBudgetSeconds,
         getRetryExtra,
         metricsEnabled,
-        List.of());
+        IdentityAdminBrand.defaults(),
+        Map.of(),
+        Map.of(),
+        64);
   }
 
   public static RuntimeParameters defaults() {
@@ -155,9 +129,11 @@ public record RuntimeParameters(
     Map<String, Object> business =
         businessValue == null ? Map.of() : freezeBusiness((Map<?, ?>) businessValue);
     var brand = IdentityAdminBrand.take(specific, serviceName);
-    List<GatewayRouteSpec> routes = List.of();
-    if (specific.containsKey("gateway") && "api-gateway".equals(serviceName))
-      routes = GatewayRouteSpec.parse(specific.remove("gateway"));
+    if (specific.containsKey("gateway"))
+      throw new IllegalArgumentException(
+          "旧 gateway.routes 已退役，请迁移至 spring.cloud.gateway.server.webflux.routes");
+    Map<String, Object> spring =
+        NativeComponentSettings.parse(specific.remove("spring"), serviceName);
     Object override = common.remove("allow_override");
     List<?> allowed = override == null ? List.of() : requireList(override);
     Map<String, Object> merged = flatten(common, "");
@@ -185,9 +161,16 @@ public record RuntimeParameters(
         number(merged, "http.response_budget_seconds", 10),
         ((Number) retry).intValue(),
         (Boolean) metrics,
-        routes,
         brand,
-        business);
+        business,
+        spring,
+        integer(merged, "http.max_connections", 64));
+  }
+
+  private static int integer(Map<String, Object> values, String key, int fallback) {
+    Object value = values.getOrDefault(key, fallback);
+    if (!(value instanceof Integer)) throw new IllegalArgumentException("连接池大小必须为正整数");
+    return (Integer) value;
   }
 
   private static List<?> requireList(Object value) {
@@ -257,7 +240,8 @@ public record RuntimeParameters(
     canonical.put("response_budget_seconds", responseBudgetSeconds);
     canonical.put("get_retry_extra", getRetryExtra);
     canonical.put("metrics_enabled", metricsEnabled);
-    canonical.put("gateway_routes", gatewayRoutes);
+    canonical.put("spring", spring);
+    canonical.put("max_connections", maxConnections);
     if (!business.isEmpty()) canonical.put("business", business);
     if (!identityAdminBrand.equals(IdentityAdminBrand.defaults()))
       canonical.put("identity_admin_brand", identityAdminBrand);
@@ -275,7 +259,8 @@ public record RuntimeParameters(
     return connectTimeoutSeconds == other.connectTimeoutSeconds
         && responseBudgetSeconds == other.responseBudgetSeconds
         && getRetryExtra == other.getRetryExtra
-        && gatewayRoutes.equals(other.gatewayRoutes)
+        && maxConnections == other.maxConnections
+        && spring.equals(other.spring)
         && identityAdminBrand.equals(other.identityAdminBrand)
         && business.equals(other.business);
   }

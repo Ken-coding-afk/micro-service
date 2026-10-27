@@ -4,65 +4,60 @@ import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.NacosRuntime;
 import com.ken.platform.foundation.discovery.PlatformReadinessCheck;
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
-import com.ken.platform.foundation.http.CallContext;
 import java.time.Clock;
 import org.springframework.cloud.gateway.config.GatewayProperties;
-import org.springframework.cloud.gateway.route.RouteLocator;
-import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.oauth2.core.OAuth2AuthenticatedPrincipal;
-import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
-import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
-import org.springframework.security.oauth2.server.resource.authentication.OpaqueTokenReactiveAuthenticationManager;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.security.web.server.savedrequest.NoOpServerRequestCache;
-import reactor.core.publisher.Mono;
 
 /** 显式路由与独立 audience 的异步 opaque 入口；BFF 在独立命名空间接续。 */
 @Configuration(proxyBeanMethods = false)
 public class GatewaySecurityConfiguration {
   @Bean
   GatewayRoutes platformGatewayRoutes(RuntimeParameters parameters, GatewayProperties properties) {
-    if (!properties.getRoutes().isEmpty())
-      throw new IllegalArgumentException("Gateway 路由只能来自已校验的 api-gateway.yaml，不能另设 Spring 路由");
-    return new GatewayRoutes(parameters);
+    return new GatewayRoutes(properties);
   }
 
   @Bean(destroyMethod = "close")
   GatewayIntrospectionClients gatewayIntrospectionClients(
       Environment environment,
       RuntimeParameters parameters,
+      GatewayRoutes routes,
       ServiceDiscovery discovery,
       Clock clock) {
-    return new GatewayIntrospectionClients(environment, parameters, discovery, clock);
+    return new GatewayIntrospectionClients(environment, parameters, routes, discovery, clock);
   }
 
   @Bean
-  RouteLocator platformExplicitRoutes(
-      RouteLocatorBuilder builder, RuntimeParameters parameters, GatewayRoutes validated) {
-    var routes = builder.routes();
-    for (var route : parameters.gatewayRoutes())
-      routes.route(
-          route.id(), predicate -> predicate.path(route.path()).uri("lb://" + route.service()));
-    return routes.build();
+  org.springframework.cloud.gateway.route.RouteDefinitionLocator platformIdentityRoutes(
+      GatewayRoutes routes) {
+    return () -> reactor.core.publisher.Flux.fromIterable(routes.identityRoutes());
+  }
+
+  @Bean
+  GatewayAuthenticationFilter platformRouteAuthentication(GatewayIntrospectionClients clients) {
+    return new GatewayAuthenticationFilter(clients);
   }
 
   @Bean
   PlatformReadinessCheck gatewayDependencies(
-      NacosRuntime runtime, RuntimeParameters parameters, GatewayIntrospectionClients clients) {
+      NacosRuntime runtime,
+      RuntimeParameters parameters,
+      GatewayRoutes routes,
+      GatewayIntrospectionClients clients) {
     return () -> {
       try {
         if (!parameters.sameRestartFields(runtime.parameters()))
           throw new IllegalStateException("Gateway 启动配置快照已变化");
         var services = new java.util.TreeSet<String>();
-        parameters.gatewayRoutes().forEach(route -> services.add(route.service()));
-        if (!clients.empty()) services.add("identity-service");
+        routes.definitions().forEach(route -> services.add(route.getUri().getHost()));
+        services.add("identity-service");
         for (String service : services) runtime.watch(service);
         clients.verify();
       } catch (Exception failure) {
@@ -116,46 +111,8 @@ public class GatewaySecurityConfiguration {
         .securityMatcher(
             org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers
                 .pathMatchers("/api/**"));
-    http.authorizeExchange(requests -> requests.anyExchange().authenticated());
-    http.exceptionHandling(
-        exceptions -> exceptions.authenticationEntryPoint(errors).accessDeniedHandler(errors));
-    var authentication =
-        new org.springframework.security.web.server.authentication.AuthenticationWebFilter(
-            (org.springframework.security.authentication.ReactiveAuthenticationManagerResolver<
-                    org.springframework.web.server.ServerWebExchange>)
-                exchange -> {
-                  var route = routes.api(exchange.getRequest().getPath().pathWithinApplication());
-                  if (route == null)
-                    return Mono.error(new InvalidBearerTokenException("未登记的 API 入口"));
-                  var introspector = clients.forAudience(route.audience());
-                  return Mono.just(
-                      new OpaqueTokenReactiveAuthenticationManager(
-                          token ->
-                              Mono.deferContextual(
-                                  context ->
-                                      Mono.fromFuture(
-                                              introspector.introspectAsync(
-                                                  token,
-                                                  context.getOrDefault(CallContext.class, null)))
-                                          .cast(OAuth2AuthenticatedPrincipal.class))));
-                });
-    authentication.setSecurityContextRepository(NoOpServerSecurityContextRepository.getInstance());
-    // 官方默认失败处理器会重抛 AuthenticationServiceException；显式保留 503 合同。
-    authentication.setAuthenticationFailureHandler(
-        (exchange, failure) -> errors.commence(exchange.getExchange(), failure));
-    authentication.setServerAuthenticationConverter(
-        exchange -> {
-          var values = exchange.getRequest().getHeaders().get("Authorization");
-          if (values == null || values.isEmpty()) return Mono.empty();
-          if (values.size() != 1
-              || values.getFirst().length() > 8199
-              || !values.getFirst().matches("(?i)Bearer [A-Za-z0-9._~+/-]+=*"))
-            return Mono.error(new InvalidBearerTokenException("访问令牌无效"));
-          return Mono.just(new BearerTokenAuthenticationToken(values.getFirst().substring(7)));
-        });
-    http.addFilterAt(
-        authentication,
-        org.springframework.security.config.web.server.SecurityWebFiltersOrder.AUTHENTICATION);
+    // API 的认证依赖原生选路结果，在 GlobalFilter 中完成；这里不建立第二张路径路由表。
+    http.authorizeExchange(requests -> requests.anyExchange().permitAll());
     return http.build();
   }
 
@@ -181,11 +138,7 @@ public class GatewaySecurityConfiguration {
           if (routes.publicPaths().length > 0)
             requests.pathMatchers(routes.publicPaths()).permitAll();
           if (bff.getIfAvailable() != null)
-            requests
-                .pathMatchers(
-                    com.ken.platform.foundation.config.GatewayRouteSpec.identityPaths()
-                        .toArray(String[]::new))
-                .permitAll();
+            requests.pathMatchers(IdentityEndpoints.paths().toArray(String[]::new)).permitAll();
           requests.anyExchange().denyAll();
         });
     http.exceptionHandling(

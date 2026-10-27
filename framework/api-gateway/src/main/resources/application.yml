@@ -2,10 +2,17 @@
 spring:
   application:
     name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 2000
+            response-timeout: 45s
   main:
     web-application-type: reactive
   autoconfigure:
-    # Redis 仅由 BFF 显式绑定创建；不能因加入依赖而连接默认 localhost:6379。
+    # Redis 由网关共用配置显式绑定创建；不能因加入依赖而连接默认 localhost:6379。
     exclude:
       - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
       - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration

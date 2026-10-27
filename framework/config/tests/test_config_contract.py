@@ -135,9 +135,10 @@ def test_identity_brand_is_owned_by_identity_and_public_route_is_exact():
         "path": "/api/v1/identity/admin-config",
         "service": "identity-service",
     }
-    assert contract._check_gateway_routes({"routes": [route]}, "api-gateway.yaml") == []
+    # 身份公开白名单已由网关固定提供，旧 DSL 的精确路径与通配路径均须迁移。
+    assert contract._check_forbidden({"gateway": {"routes": [route]}}, "api-gateway.yaml")
     route["path"] += "/**"
-    assert contract._check_gateway_routes({"routes": [route]}, "api-gateway.yaml")
+    assert contract._check_forbidden({"gateway": {"routes": [route]}}, "api-gateway.yaml")
 
 
 # ---------------------------------------------------------------------------

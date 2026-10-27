@@ -30,6 +30,10 @@ public final class FailedInstanceFilter implements GlobalFilter, Ordered {
         .filter(exchange)
         .doOnError(
             failure -> {
+              // 本地池容量、调用取消、业务保护错误不是对端失效证据。
+              if (!(failure instanceof java.io.IOException)
+                  && !(failure instanceof io.netty.channel.ConnectTimeoutException)
+                  && !(failure instanceof io.netty.handler.timeout.ReadTimeoutException)) return;
               Route route = exchange.getAttribute(GATEWAY_ROUTE_ATTR);
               URI selected = exchange.getAttribute(GATEWAY_REQUEST_URL_ATTR);
               if (route != null

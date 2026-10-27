@@ -1,0 +1,18 @@
+[
+  {
+    "resource": "http.inbound",
+    "grade": 0,
+    "count": 64,
+    "strategy": 0,
+    "controlBehavior": 0,
+    "clusterMode": false
+  },
+  {
+    "resource": "http.outbound/sample-python-service",
+    "grade": 0,
+    "count": 32,
+    "strategy": 0,
+    "controlBehavior": 0,
+    "clusterMode": false
+  }
+]

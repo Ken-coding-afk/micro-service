@@ -1,11 +1,11 @@
 # Java与Python协作设计
 
-> 文档版本：1.6；文档集基线：D-20261027-03；更新：2026-10-27。  
+> 文档版本：1.7；文档集基线：D-20261027-04；更新：2026-10-27。  
 > 状态：已确认的目标设计；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：公共包、同步调用与可选消息；服务寻址引用配置设计；不提供业务任务运行时。  
-> 导航：[文档总入口](../01-文档导航.md)；任务与证据见[实施计划](../plans/05-混合项目接入与审查修正实施计划.md)。
+> 导航：[文档总入口](../01-文档导航.md)；本次流量保护任务与证据见[实施计划](../plans/2026-10-27-限流熔断与并发保护-plan.md)；历史混合接入见[原计划](../plans/2026-10-27-混合项目接入与审查修正-plan.md)。
 
-本文定义目标合同；部分骨架与本地工具已实现，尚不能完整启动框架。各入口的实际交付与验证状态见实施计划。
+本文定义目标合同，不记录逐任务进度。已有交付与本次变更的实际验证范围分别见对应实施计划，不能仅凭设计正文推断某个发行已验收。
 
 | 章节 | 阅读目的 |
 | --- | --- |
@@ -48,6 +48,46 @@ Gateway 对 API 校验 access token 或 BFF 会话；资源服务再次独立校
 
 BFF 登录流程由 Gateway OAuth2 Client 完成，保存授权客户端和刷新凭证到服务端存储；浏览器后续通过会话访问业务。Cookie 模式的写请求强制 CSRF 校验，OAuth state 和 PKCE 不能替代业务 CSRF。外部 API 客户端可直接发送 Bearer token；BFF cookie 与 bearer 的入口处理明确分离，避免不清楚当前使用哪种身份。
 
+### 原生网关：使用原生路由，框架保留必要安全适配
+
+1. 项目在 `config/nacos/api-gateway.yaml` 使用 `spring.cloud.gateway.server.webflux.routes`。路由使用原生 `id/uri/predicates/filters/metadata`，目标为 `lb://服务名`；服务发现交给现有 Nacos/LoadBalancer。不开启“发现即自动公开全部服务”。
+2. 业务路由 metadata 只补必要身份信息：`platform.audience`。逻辑限流名默认等于原生 route id；BFF 派生路由携带原 route id，不按 URL 拼接桶。RedisRateLimiter 本身也把 routeId 纳入 Redis key，因此适配必须将传入 isAllowed 的派生 routeId 归一到原 routeId，不能只归一 KeyResolver。框架不提供任意脚本/表达式执行入口。
+3. 原生 routes 是唯一来源。退役 `gateway.routes`、`GatewayRouteSpec` 的自定义路由解析和“禁止 Spring routes”限制；不能把原生配置再转回旧四字段模型。旧格式启动/发布时给出明确迁移错误，不静默忽略。
+4. 使用原生路由选择结果。Bearer 鉴权可在选路后的安全 GlobalFilter 中委托 Spring 官方 ReactiveAuthenticationManager；它必须先于限流和 Netty 转发执行。不再单独用一张按路径匹配的安全路由表选择 audience。BFF 的浏览器登录、CSRF 和会话继续由 Spring Security 处理，其代理调用再获得同一 audience 的可信主体。
+5. 业务路由必须有 audience；未知路由拒绝，缺失元数据启动失败。固定身份协议/页面例外由框架声明，项目不能通过添加 public=true 绕过认证。仅允许受控的 `lb://` 目标；禁止把 `/internal/**`、内省管理端点或任意外部 URL 借路由公开。
+6. BFF 业务入口由同一个原生 RouteDefinition 派生：复制相同原生限流参数，再加入固定前缀处理及凭据头清理。请求只经过其中一个业务入口，不执行两次扣令牌。管理 BFF 的固定路径仍按已有协议生成，不让项目重新配置登录流程。
+7. 限流采用官方 RedisRateLimiter 令牌桶；框架只实现可信 KeyResolver、失败适配和统一错误。租户用户桶：`project/env/tenant/逻辑路由`；机器桶：`project/env/client_id/逻辑路由`；已验证的平台账号没有 tenant_id，使用 `project/env/platform/subject/逻辑路由`。身份类型只能来自内省后的主体，缺少应有身份字段则拒绝，不能回退到匿名公共桶；三种类型使用不同前缀防止键碰撞。编码使用结构化字段摘要，不能让标识中的分隔符拼出另一租户的键。
+8. Redis 连接从 BFF 条件配置中抽离成网关共用连接配置，复用原有 endpoint、secret、TLS 要求；无 BFF 时限流也可工作。限流和会话使用不同键前缀，不增加 Redis 容器。
+9. Redis 故障采用拒绝策略，返回 `503 RATE_LIMIT_UNAVAILABLE`。官方实现把异常转换为 allowed=true、remaining=-1；薄适配继承官方 RedisRateLimiter 并在 isAllowed 结果处识别该标志及缺失/异常结果，保留官方配置绑定和脚本执行，不能只在外层 onErrorResume。固定启用内部 remaining 信息，响应输出可脱敏；升级 SCG 必须重跑这个组件合同测试。不复制一套 Lua 令牌桶。
+10. 登录/验证码等匿名保护继续使用既有 LoginProtection；业务租户桶不覆盖匿名攻击防护。入口 DDoS/WAF 属于部署平台。本设计不宣称租户限流可以保护认证前的一切资源。
+
+拟议配置示例（待实现后才能被当前发布工具接受）：
+
+```yaml
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: sample-python
+              uri: lb://sample-python-service
+              predicates:
+                - Path=/api/v1/python-items/**
+              metadata:
+                platform.audience: sample-python-service
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantOrClientKeyResolver}'
+                    rate-limiter: '#{@platformRedisRateLimiter}'
+                    redis-rate-limiter.replenishRate: 20
+                    redis-rate-limiter.burstCapacity: 40
+                    redis-rate-limiter.requestedTokens: 1
+```
+
+这里是每秒补充 20 个令牌、桶最多 40 个，允许突发；**不是固定一秒最多 20 个**。示例数值用于接入和验证，不是容量承诺。未声明限流过滤器的路由不自动获得配额。网关不叠加 Sentinel、依赖熔断或 Retry；本次不引入 SCG CircuitBreaker 所依赖的另一套熔断库。网关共享租户额度与 Java 进程资源保护各有职责，不在同一边界重复计数。
+
 <a id="http"></a>
 
 ## 3. 跨语言 HTTP 合同
@@ -82,6 +122,55 @@ OpenAPI 由服务的 DTO/路由生成并随服务发行；Java/Python 客户端�
 同步调用适用于可在请求预算内完成的读取或短操作。调用前必须有连接、读取和整体超时，整体预算向下游递减。幂等读取可在剩余预算内有限重试并换实例；写请求只有协议明确支持幂等键时才可重试。超时表示未得到结果，不表示下游未执行。外部模型/工具单独配置超时，不直接套用普通 API 的较短预算。
 
 Java 可调用 Python，Python 也可调用 Java；选择哪一方发起由领域职责决定。Python 的算法接口可以独立作为项目业务服务，不强制为每个 Python 服务再增加一个 Java 转发服务。后台任务调用业务 API 时必须使用登记的机器身份或明确的用户委托，不能沿用过期浏览器 token。
+
+### 服务入站：使用 Sentinel 并发流控
+
+- Java 使用 Sentinel `FlowRule`，`grade=0`（并发线程数）、`strategy=0`（直接）、`controlBehavior=0`（快速拒绝）；统一资源名 `http.inbound`。Python 使用 AnyIO CapacityLimiter。两者均不排队，事件循环中禁止阻塞等待。
+- **不将 Sentinel 并发流控描述为严格信号量。** 它基于资源当前并发统计检查，检查与计数不是一次原子抢占；极短并发竞争下可能越过阈值。本任务以过载快速拒绝和正确资源生命周期为目标，不为保持旧表述再写一套原子并发引擎。数据库连接池、线程池等真实资源仍应有自身上限；严格 GPU 执行名额由业务资源池负责。Python CapacityLimiter 则提供进程内许可限制。
+- 覆盖 `/api/v1/**`、`/internal/v1/**` 业务 HTTP，排除健康检查和 OAuth/OIDC 协议端点。准入在昂贵处理前执行，不依赖外部租户头；忙时可先返回 503，但不能跳过鉴权后执行业务。
+- Java 异步请求使用官方 `AsyncEntry`，持有到 Servlet/Reactive 请求实际结束；禁止用同步 `@SentinelResource` 包住“创建 Future”就声称保护整个异步执行。Python 持有许可到 ASGI 请求结束。完成、错误、取消路径确保只 exit/release 一次。
+- 客户端断连但同步线程仍执行时，资源占用不能提前结束。Python 不使用 `abandon_on_cancel=True` 把仍运行线程当作完成。HTTP 准入不承担 CPU/GPU 调度或后台任务取消。
+- 阈值是每进程的：副本和 Uvicorn worker 各自计数。通过 Nacos 下发相同规则不会共享计数；本次不部署 Sentinel Token Server，不启用集群规则。Gateway 的跨节点租户桶仍使用 Redis。
+
+### 出站调用：Sentinel 原生资源与熔断
+
+Java 保留 `ServiceHttpClient.request(...)`，Python 保留 `await ServiceHttpClient.request(...)`。Java 资源名为 `http.outbound/<逻辑服务名>`，对同一依赖的所有实例合并治理；不能使用租户、用户、完整 URL 动态生成无限资源。资源名由 SDK 固定生成，业务规则文件按此命名。
+
+Java 使用 Spring Cloud Alibaba 2025.1.0.0 BOM 管理的 Sentinel 1.8.9 核心和 `sentinel-datasource-nacos`，沿用官方 AsyncEntry/Tracer/规则管理 API；Reactor 适配按实际生命周期复用。不再引入上一版 Java 熔断组件，不擅升 Boot/Cloud。基础包中的自动装配仅在服务明确启用时执行，不能因 Gateway 引用 foundation 就自动重复装配 Servlet、WebClient 或网关埋点；不同时启用自动 WebClient 埋点和 SDK 手工埋点。
+
+**统计单位为一次逻辑 SDK 调用。** 顺序为：检查 deadline 和发现实例 → Sentinel 异步准入（并发与熔断）→ 执行 HTTP 与允许的 GET 重试 → 读取完整普通响应 → 记录最终分类 → exit。整个逻辑调用占一个 Entry；失败后一次 GET 重试仍受原 deadline 和 Entry 约束，不累计成两个熔断样本。半开探针也是一个逻辑调用，可能包含最多两次 HTTP 尝试；不读取或修改 Sentinel 私有状态以另写探针策略。熔断拒绝不重试。
+
+Sentinel 采用原生异常比例策略：`grade=1`、`count=0.5`、`minRequestAmount=10`、`statIntervalMs=10000`、`timeWindow=20`。即 10 秒统计窗口内至少 10 次完成且异常比例**大于** 50% 时打开 20 秒，之后由官方单逻辑探针恢复；不是旧版“最近 20 次调用”的计数窗口。一个逻辑探针仍受现有 10 秒整体 deadline 限制，不虚构组件的半开超时配置。
+
+| 结果 | Sentinel 记录 | 重试 |
+| --- | --- | --- |
+| 最终传输失败、实际 I/O 超时、500/502/503/504 | 在当前 AsyncEntry 上通过官方 Tracer 记录一次远端失败 | 只有传输失败/超时且 GET、还有预算时最多额外一次；HTTP 错误响应不重试 |
+| 2xx/3xx/业务 4xx（含 429） | 无远端异常，计入正常完成样本；不代表业务成功 | 无 |
+| 调用前预算耗尽、无实例、Sentinel BlockException | 不创建成功 Entry 或按原生拒绝处理，不主动 trace 为远端故障 | 无 |
+| 本地连接池等待失败、客户端取消 | 不主动 trace 为远端异常；如已有 Entry，按官方 exit 语义完成 | 无 |
+
+保留原有 HTTP 响应对象和状态；对 5xx trace 仅用于统计，不能吞掉响应或伪造成功。仅真实网络尝试失败才失效对应实例，本地忙、熔断、取消不摘除健康实例。选用按 Entry 的 Tracer API，不能在异步线程上依赖错误的 ThreadLocal 上下文。
+
+**原生取消语义的边界：** Sentinel 无异常退出的 Entry 可进入总样本，半开取消也可能使原生异常比例熔断器回到 CLOSED。本设计不承诺“取消完全不影响熔断统计”，不为该差异修改其内部状态机；独立记录取消指标（Java platform.http.cancelled、Python platform_protection_cancelled），探针恢复指标不能解释成一次业务成功。取消必须关闭实际网络订阅、结束 Entry，不留永久并发占用。若业务需要更严格的恢复证明，应另行评审，不静默增加自研熔断层。
+
+连接池仍采用 Reactor Netty ConnectionProvider / HTTPX Limits，有界等待并受 deadline 限制；创建者负责关闭，外部注入的客户端由注入方负责。内省/BFF 客户端不与业务调用共用一个小并发桶。绕过 SDK 的外部 HTTP 调用不宣称自动受到保护。
+
+### 错误、超时、流式与观测
+
+| 情况 | HTTP / code | 约束 |
+| --- | --- | --- |
+| 网关令牌不足 | 429 / RATE_LIMITED | Retry-After 至少 1 秒，按单次请求令牌恢复间隔向上取整；只是建议，不保证等待后必成功 |
+| 限流 Redis 故障 | 503 / RATE_LIMIT_UNAVAILABLE | 不冒充 429，不回退为本地独立桶 |
+| 服务入站满 | 503 / SERVICE_BUSY | 不排队；健康检查不进入该桶 |
+| SDK 出站名额/连接池满 | 503 / DEPENDENCY_BUSY | 不立即重试、不作为远端故障 |
+| Java 熔断打开 | 503 / DEPENDENCY_CIRCUIT_OPEN | 不执行下游 I/O，不返回伪造业务成功 |
+| 调用超时 | 504 / UPSTREAM_TIMEOUT | 写请求结果未知，由业务按幂等/查询处理 |
+
+继续使用现有错误 envelope、request_id、HTTP 状态；OAuth/OIDC 错误保持协议格式。普通 API SDK 总预算 10 秒、连接 2 秒、网关整体 15 秒（包含认证及响应体）；Nginx 连接 2 秒，普通/流式统一读写空闲 60 秒。将旧设计中普通 API 的 20 秒改为 60 秒，整体截止由 Gateway 执行，避免 Nginx 再维护一套与动态路由重复的超时分类表。网关总预算覆盖完整普通响应，不能把响应头超时或 Nginx 空闲超时冒充整体 deadline。
+
+普通 SDK 当前是缓冲响应 API，不能拿它转发 SSE。本次不新增流式客户端 API：网关流式转发沿用明确流式路由 metadata `platform.streaming: true`，不套普通 15 秒整体截止时间，按现有设计的空闲边界处理；普通/流式路由不得有歧义。入站许可在流结束/断连处理结束后释放，流已开始只能关闭/按业务协议报错，不能重发或改写为 JSON 503。流式业务心跳与重连语义仍由业务实现。
+
+指标使用现有 Actuator/SDK 观测接入，增加拒绝次数、活动名额、连接池等待/超时、熔断状态变化/失败次数、Redis 限流故障；标签只用 service、route、dependency、reason 等有界名称，不带 tenant_id/user_id。复用 Sentinel 资源统计、状态变更观察接口与现有观测设施，记录规则有效摘要；不自建平行状态表，不默认暴露 Sentinel transport 管理端口。不开新指标控制台或公网管理端点。
 
 <a id="messaging"></a>
 
@@ -135,3 +224,5 @@ Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，使用已�
 - 2026-10-27，D-20261027-02：明确可选消息适配的行锁、来源账号、拓扑与业务负责的消费者/告警边界。
 
 - 2026-10-27，D-20261027-03：统一混合项目目录及接入路径；业务配置扩展、管理页和发布恢复合同按计划 05 修正；实际验收见计划 05。
+
+- 2026-10-27，D-20261027-04：按已确认 Sentinel 计划同步原生网关、Java 动态规则、Python 并发和调用边界；目标合同不代表已完成运行验收。

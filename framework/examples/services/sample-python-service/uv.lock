@@ -610,18 +610,20 @@ wheels = [
 
 [[package]]
 name = "ken-platform-sdk"
-version = "1.0.0rc2"
+version = "1.0.0rc3"
 source = { registry = "../../artifacts/python" }
 dependencies = [
+    { name = "anyio" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "nacos-sdk-python" },
+    { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
 ]
 wheels = [
-    { path = "../../artifacts/python/ken_platform_sdk-1.0.0rc2-py3-none-any.whl" },
+    { path = "ken_platform_sdk-1.0.0rc3-py3-none-any.whl" },
 ]
 
 [package.optional-dependencies]
@@ -726,6 +728,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2e/02/6e0ae9cc61bd3169d401077b507b3ebc344745171e1051ab430be012dcd9/opentelemetry_api-1.45.1.tar.gz", hash = "sha256:aa38ed19bcc084ba42782a73255b3582283eced7ad6dddbd6695189e69adfb75", size = 72804, upload-time = "2026-10-06T17:32:58.133Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl", hash = "sha256:b31553efa588ae44bc306f863c785c5333a9ecc091248c6ee68b4b6c87fdedfb", size = 60256, upload-time = "2026-10-06T17:32:33.506Z" },
+]
+
+[[package]]
+name = "prometheus-client"
+version = "0.26.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/73/f1334c29c2af4cd9dba6c7817e61b611bd0215e2eb5565c6064a4de18802/prometheus_client-0.26.0.tar.gz", hash = "sha256:04a91bcf94e2cf74a44a1a874d651a2e853ed354b6e822f3b7487751465d5c2b", size = 92910, upload-time = "2026-07-24T19:36:41.893Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/a3/b69efbf4143b5b9859b977770bbbabcc2796b702fa69dc40271e45cd5a56/prometheus_client-0.26.0-py3-none-any.whl", hash = "sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6", size = 64494, upload-time = "2026-07-24T19:36:40.854Z" },
 ]
 
 [[package]]
@@ -993,7 +1004,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ken-platform-sdk", extras = ["db"], specifier = "==1.0.0rc2" },
+    { name = "ken-platform-sdk", extras = ["db"], specifier = "==1.0.0rc3" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 

@@ -2,7 +2,6 @@ package com.ken.platform.gateway;
 
 import static org.assertj.core.api.Assertions.*;
 
-import com.ken.platform.foundation.config.GatewayRouteSpec;
 import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
 import com.ken.platform.gateway.security.GatewayIntrospectionClients;
@@ -24,17 +23,10 @@ class GatewayIntrospectionClientsTest {
   @TempDir Path directory;
 
   private RuntimeParameters parameters() {
-    return new RuntimeParameters(
-        "INFO",
-        2,
-        10,
-        1,
-        true,
-        List.of(
-            new GatewayRouteSpec(
-                "documents", "/api/v1/documents/**", "document-service", "documents"),
-            new GatewayRouteSpec(
-                "analysis", "/api/v1/analysis-jobs/**", "analysis-service", "analysis")));
+    return RouteFixtures.parameters(
+        RouteFixtures.route("documents", "/api/v1/documents/**", "document-service", "documents"),
+        RouteFixtures.route(
+            "analysis", "/api/v1/analysis-jobs/**", "analysis-service", "analysis"));
   }
 
   private MockEnvironment environment() {
@@ -46,7 +38,11 @@ class GatewayIntrospectionClientsTest {
   private GatewayIntrospectionClients create(
       MockEnvironment environment, RuntimeParameters parameters) {
     return new GatewayIntrospectionClients(
-        environment, parameters, new ServiceDiscovery(System::nanoTime), Clock.systemUTC());
+        environment,
+        parameters,
+        new com.ken.platform.gateway.security.GatewayRoutes(RouteFixtures.properties(parameters)),
+        new ServiceDiscovery(System::nanoTime),
+        Clock.systemUTC());
   }
 
   private List<Map<String, Object>> readers() throws Exception {

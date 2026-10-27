@@ -1,3 +1,7 @@
 log_level: INFO
 business:
   max_page_size: 50
+spring:
+  cloud:
+    sentinel:
+      enabled: true

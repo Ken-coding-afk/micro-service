@@ -1,9 +1,11 @@
 [project]
 name = "ken-platform-sdk"
-version = "1.0.0rc2"
+version = "1.0.0rc3"
 description = "Ken 微服务框架 Python 接入包：配置发现、身份校验、租户上下文、HTTP 与可选 DB/MQ"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "anyio>=4.12,<5",
+    "prometheus-client>=0.21,<1",
     "fastapi>=0.162.0,<0.163",
     "httpx>=0.28.1,<0.29",
     "nacos-sdk-python==3.2.0",

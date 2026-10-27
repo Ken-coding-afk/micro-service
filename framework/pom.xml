@@ -13,7 +13,7 @@
 
   <groupId>com.ken.platform</groupId>
   <artifactId>platform-parent</artifactId>
-  <version>1.0.0-rc.2</version>
+  <version>1.0.0-rc.3</version>
   <packaging>pom</packaging>
 
   <name>platform-parent</name>
@@ -27,7 +27,7 @@
 
   <properties>
     <java.version>21</java.version>
-    <platform.version>1.0.0-rc.2</platform.version>
+    <platform.version>1.0.0-rc.3</platform.version>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!-- 以下组合由 T-01 冻结；升级须重新验证并修订设计 01 选型基线 -->

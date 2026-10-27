@@ -7,11 +7,14 @@ import time
 from urllib.parse import urlsplit
 
 import httpx
+from anyio import CapacityLimiter
 
-from .config import HttpParameters
+from .concurrency import admission
+from .config import ConcurrencyParameters, HttpParameters
 from .context import current_context, request_deadline
 from .discovery import ServiceDiscovery
-from .errors import DeadlineExceeded, DependencyUnavailable
+from .errors import DeadlineExceeded, DependencyUnavailable, PlatformError
+from .observation import ProtectionMetrics
 
 
 class ServiceHttpClient:
@@ -20,12 +23,34 @@ class ServiceHttpClient:
         discovery: ServiceDiscovery,
         client: httpx.AsyncClient,
         parameters: HttpParameters | None = None,
+        concurrency: ConcurrencyParameters | None = None,
+        metrics: ProtectionMetrics | None = None,
     ):
+        self.metrics = metrics or ProtectionMetrics()
         self.discovery = discovery
         self.client = client
         self.parameters = parameters or HttpParameters()
+        self._limits = {
+            service: CapacityLimiter(limit)
+            for service, limit in (concurrency or ConcurrencyParameters()).outbound_limits.items()
+        }
+
+        for service, limiter in self._limits.items():
+            self.metrics.active.labels("http.outbound/" + service).set_function(
+                lambda limiter=limiter: limiter.borrowed_tokens
+            )
 
     async def request(
+        self, service: str, method: str, path: str, *, json: object | None = None
+    ) -> httpx.Response:
+        if request_deadline(self.parameters.response_budget_seconds) <= time.time():
+            raise DeadlineExceeded()
+        with admission(
+            self._limits.get(service), metrics=self.metrics, resource="http.outbound/" + service
+        ):
+            return await self._request(service, method, path, json=json)
+
+    async def _request(
         self, service: str, method: str, path: str, *, json: object | None = None
     ) -> httpx.Response:
         if not path.startswith("/") or path.startswith("//") or urlsplit(path).netloc:
@@ -48,7 +73,9 @@ class ServiceHttpClient:
                 raise DeadlineExceeded()
             instance = self.discovery.choose(service)
             timeout = httpx.Timeout(
-                remaining, connect=min(remaining, self.parameters.connect_timeout_seconds)
+                remaining,
+                connect=min(remaining, self.parameters.connect_timeout_seconds),
+                pool=min(remaining, 1.0),
             )
             try:
                 async with asyncio.timeout(remaining):
@@ -60,7 +87,17 @@ class ServiceHttpClient:
                         timeout=timeout,
                         follow_redirects=False,
                     )
-            except (TimeoutError, httpx.TimeoutException) as exc:
+            except httpx.PoolTimeout:
+                self.metrics.reject("http.outbound/pool", "pool_timeout")
+                raise PlatformError("DEPENDENCY_BUSY", "业务连接池容量已满", 503) from None
+            except asyncio.CancelledError:
+                if self.metrics.enabled:
+                    self.metrics.cancelled.labels("outbound").inc()
+                raise
+            except TimeoutError as exc:
+                # 总预算可能耗在本地池等待，不能凭这一异常摘除健康实例。
+                raise DeadlineExceeded() from exc
+            except httpx.TimeoutException as exc:
                 self.discovery.invalidate(service, instance)
                 if attempt + 1 == attempts:
                     raise DeadlineExceeded() from exc

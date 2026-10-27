@@ -44,8 +44,17 @@ public class PlatformAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     ServiceHttpClient platformHttp(
-        ServiceDiscovery discovery, Clock clock, RuntimeParameters parameters) {
-      return ServiceHttpClient.configured(discovery, clock, parameters);
+        ServiceDiscovery discovery,
+        Clock clock,
+        RuntimeParameters parameters,
+        org.springframework.beans.factory.ObjectProvider<
+                com.ken.platform.foundation.http.HttpProtection>
+            protection) {
+      return ServiceHttpClient.configured(
+          discovery,
+          clock,
+          parameters,
+          protection.getIfAvailable(() -> com.ken.platform.foundation.http.HttpProtection.NONE));
     }
   }
 }

@@ -2,19 +2,19 @@ package com.ken.platform.gateway.security;
 
 import com.ken.platform.foundation.http.CallContext;
 import com.ken.platform.foundation.security.CurrentPrincipal;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-/** 在 Security WebFilterChainProxy 后建立可信 Reactor Context；不写 ThreadLocal。 */
+/** 在原生选路与 GatewayAuthenticationFilter 后建立可信 Reactor Context；不写 ThreadLocal。 */
 @Component
-public final class GatewayPrincipalContextFilter implements WebFilter, Ordered {
+public final class GatewayPrincipalContextFilter implements GlobalFilter, Ordered {
   @Override
-  public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+  public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
     return Mono.deferContextual(
         reactor -> {
           CallContext parent = reactor.getOrDefault(CallContext.class, null);
@@ -63,6 +63,6 @@ public final class GatewayPrincipalContextFilter implements WebFilter, Ordered {
 
   @Override
   public int getOrder() {
-    return -99;
+    return -80;
   }
 }

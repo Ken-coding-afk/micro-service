@@ -77,7 +77,10 @@ def _publish(args: argparse.Namespace) -> int:
 
     with httpx.Client(timeout=15) as client:
         token = _login(client, values["NACOS_CONSOLE_ADDR"], user, password)
-        for path in sorted(source_dir.glob("*.yaml")):
+        for path in sorted(
+            [*source_dir.glob("*.yaml"), *source_dir.glob("*.json")],
+            key=lambda p: (p.suffix != ".json", p.name),
+        ):
             data_id = path.name
             content = path.read_text(encoding="utf-8")
             new_digest = _sha256(content)
@@ -153,7 +156,7 @@ def _publish(args: argparse.Namespace) -> int:
                     "groupName": GROUP,
                     "namespaceId": namespace,
                     "content": content,
-                    "type": "yaml",
+                    "type": "json" if path.suffix == ".json" else "yaml",
                 },
             )
             if (

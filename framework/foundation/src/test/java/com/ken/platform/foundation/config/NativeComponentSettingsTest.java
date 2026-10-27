@@ -12,7 +12,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-class GatewayRouteSpecTest {
+class NativeComponentSettingsTest {
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
   static Stream<JsonNode> cases() throws Exception {
@@ -26,43 +26,27 @@ class GatewayRouteSpecTest {
   @MethodSource("cases")
   void sharedRouteContract(JsonNode fixture) {
     String service = JSON.writeValueAsString(Map.of("gateway", fixture.get("block")));
-    if (fixture.get("valid").asBoolean())
-      assertThatCode(
-              () ->
-                  RuntimeParameters.load(
-                      RuntimeParametersTest.SHARED, service, fixture.get("service").asString()))
-          .as(fixture.get("name").asString())
-          .doesNotThrowAnyException();
-    else
-      assertThatThrownBy(
-              () ->
-                  RuntimeParameters.load(
-                      RuntimeParametersTest.SHARED, service, fixture.get("service").asString()))
-          .as(fixture.get("name").asString())
-          .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(
+            () ->
+                RuntimeParameters.load(
+                    RuntimeParametersTest.SHARED, service, fixture.get("service").asString()))
+        .as(fixture.get("name").asString())
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void routingIsImmutableRestartOnlyAndCannotBePlacedInSharedConfiguration() {
     String definition =
-        "gateway: {routes: [{id: documents, path: '/api/v1/documents/**', service: document-service, audience: documents}]}";
+        "spring: {cloud: {gateway: {server: {webflux: {routes: [{id: documents, uri: 'lb://document-service', predicates: ['Path=/api/v1/documents/**'], metadata: {platform.audience: documents}}]}}}}}";
     var routes = RuntimeParameters.load(RuntimeParametersTest.SHARED, definition, "api-gateway");
-    assertThat(routes.gatewayRoutes()).hasSize(1);
-    assertThatThrownBy(() -> routes.gatewayRoutes().clear())
+    assertThat(routes.spring()).isNotEmpty();
+    assertThatThrownBy(() -> routes.spring().clear())
         .isInstanceOf(UnsupportedOperationException.class);
-    assertThat(
-            routes.sameRestartFields(
-                RuntimeParameters.load(RuntimeParametersTest.SHARED, "{}", "api-gateway")))
-        .isFalse();
-    assertThat(routes.digest()).isNotEqualTo(RuntimeParameters.defaults().digest());
+    assertThat(routes.sameRestartFields(RuntimeParameters.defaults())).isFalse();
     assertThatThrownBy(() -> RuntimeParameters.load(definition, "{}", "api-gateway"))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> RuntimeParameters.load(RuntimeParametersTest.SHARED, definition))
-        .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(
-            () ->
-                GatewayRouteSpec.parse(
-                    Map.of("routes", java.util.Collections.nCopies(65, Map.of()))))
+            () -> RuntimeParameters.load(RuntimeParametersTest.SHARED, definition, "other-service"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 }

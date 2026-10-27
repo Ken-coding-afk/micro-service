@@ -46,6 +46,19 @@ public final class PlatformContextInitializer
               NacosConfigReader.read(config, "application-shared.yaml"),
               NacosConfigReader.read(config, settings.serviceName() + ".yaml"),
               settings.serviceName());
+      if (parameters.sentinelEnabled()
+          && !org.springframework.util.ClassUtils.isPresent(
+              "com.alibaba.csp.sentinel.datasource.nacos.NacosDataSource",
+              context.getClassLoader())) {
+        throw new IllegalStateException("启用 Sentinel 必须在服务中引入官方 core 与 datasource-nacos 依赖");
+      }
+      context
+          .getEnvironment()
+          .getPropertySources()
+          .addFirst(
+              new org.springframework.core.env.MapPropertySource(
+                  "platform-native-components",
+                  NativeComponentSettings.properties(parameters.spring())));
       var factory = (DefaultListableBeanFactory) context.getBeanFactory();
       factory.registerSingleton("platformSettings", settings);
       factory.registerSingleton("platformParameters", parameters);

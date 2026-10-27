@@ -31,6 +31,14 @@ class HttpParameters(BaseModel):
     connect_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
     response_budget_seconds: float = Field(default=10.0, gt=0, le=300)
     get_retry_extra: Literal[0, 1] = 1
+    max_connections: int = Field(default=64, gt=0)
+    max_keepalive_connections: int = Field(default=32, gt=0)
+
+    @model_validator(mode="after")
+    def bounded_pool(self) -> Self:
+        if self.max_keepalive_connections > self.max_connections:
+            raise ValueError("keepalive 连接数不能超过总连接数")
+        return self
 
     @field_validator("get_retry_extra", mode="before")
     @classmethod
@@ -45,11 +53,32 @@ class ObservationParameters(BaseModel):
     metrics_enabled: bool = True
 
 
+class ConcurrencyParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    inbound_limit: int | None = Field(default=None, gt=0)
+    outbound_limits: Mapping[str, int] = Field(default_factory=dict, validate_default=True)
+
+    @field_validator("outbound_limits")
+    @classmethod
+    def valid_limits(cls, value):
+        if len(value) > 64 or any(
+            not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name) or type(limit) is not int or limit <= 0
+            for name, limit in value.items()
+        ):
+            raise ValueError("出站并发声明必须是有限逻辑服务名和正整数")
+        return MappingProxyType(dict(value))
+
+    @field_serializer("outbound_limits")
+    def serialize_limits(self, value):
+        return dict(value)
+
+
 class RuntimeParameters(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     log_level: Literal["DEBUG", "INFO", "WARNING", "WARN", "ERROR"] = "INFO"
     http: HttpParameters = HttpParameters()
     observation: ObservationParameters = ObservationParameters()
+    concurrency: ConcurrencyParameters = Field(default_factory=ConcurrencyParameters)
     business: Mapping[str, Any] = Field(default_factory=dict, validate_default=True)
 
     @field_validator("business", mode="after")
@@ -128,8 +157,8 @@ def load_runtime(shared: str, service: str) -> RuntimeParameters:
             raise ValueError("必需 Nacos 配置缺失或不是 mapping")  # noqa: TRY004 - 对外统一配置错误
         documents.append(value)
     common, specific = documents
-    if "business" in common:
-        raise ValueError("共享配置不承载业务字段")
+    if "business" in common or "concurrency" in common:
+        raise ValueError("共享配置不承载业务字段或服务并发声明")
     allow_override = common.pop("allow_override", [])
     if not isinstance(allow_override, list) or not all(
         isinstance(key, str) for key in allow_override

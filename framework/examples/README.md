@@ -2,7 +2,7 @@
 
 本目录是一个混合项目：services 同时包含 Java 和 Python 服务，两者各自保存资源，使用统一账号、权限、租户事务与发现调用。没有聊天、算法任务或 Agent 运行时。基础服务镜像不包含这里的业务代码。
 
-当前候选使用 Java 1.0.0-rc.2 / Python 1.0.0rc2。基础服务镜像与 SDK 按发行清单锁定；本地验证与真实环境未验证项分别记录在精简实施计划。
+当前候选使用 Java 1.0.0-rc.3 / Python 1.0.0rc3。基础服务镜像与 SDK 按发行清单锁定；本地验证与真实环境未验证项分别记录在精简实施计划。
 
 ## 1. 新项目取得什么
 
@@ -26,9 +26,11 @@
 
 ## 2. 工具与本地依赖
 
-本地候选随附独立的 `framework-1.0.0-rc.2-images.tar` 及 `framework-1.0.0-rc.2-offline.json` 摘要。迁入另一台 Linux/amd64 Docker 主机时，先核对 archive SHA-256，再执行 `docker load --input <archive>`；发行清单的 sha256 镜像 ID 即可在本机解析。PG/Redis/Nacos 等官方组件和依赖下载仍需已缓存或可访问仓库，这不是全依赖离线安装包。服务器正式发布仍需团队镜像仓库的 repository@sha256 引用。
+本地候选随附独立的 `framework-1.0.0-rc.3-images.tar` 及 `framework-1.0.0-rc.3-offline.json` 摘要。迁入另一台 Linux/amd64 Docker 主机时，先核对 archive SHA-256，再执行 `docker load --input <archive>`；发行清单的 sha256 镜像 ID 即可在本机解析。PG/Redis/Nacos 等官方组件和依赖下载仍需已缓存或可访问仓库，这不是全依赖离线安装包。服务器正式发布仍需团队镜像仓库的 repository@sha256 引用。
 
 前提：Docker Engine + Compose、Python 3.12 + uv；构建 Java 时需要 JDK 21。Windows 使用 PowerShell、mvnw.cmd；Linux 使用 ./mvnw。以下命令的工作目录均为发行目录根。
+
+宿主机使用 HTTP 代理时，将 `localhost,127.0.0.1,::1` 加入 `NO_PROXY`，否则本地迁移后发布权限、浏览器回调等验证可能误走代理；不要用 `*` 关闭所有环境的代理策略。
 
 ```bash
 uv sync --frozen
@@ -63,9 +65,9 @@ prepare_local.py 只适用于本地示例的自建组件/default 资源命名；
 Java 制品没有公开仓库时，候选包可先安装发行附带的 POM/JAR 到本机 Maven 仓库（正式团队使用自己的 Maven 仓库）。以下 Windows 示例使用现有 wrapper：
 
 ```powershell
-./mvnw.cmd org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=artifacts/java/platform-parent-1.0.0-rc.2.pom' '-DpomFile=artifacts/java/platform-parent-1.0.0-rc.2.pom'
-./mvnw.cmd org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=artifacts/java/foundation-1.0.0-rc.2.jar' '-DpomFile=artifacts/java/foundation-1.0.0-rc.2.pom'
-./mvnw.cmd -f services/sample-java-service/pom.xml package
+./mvnw.cmd org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=artifacts/java/platform-parent-1.0.0-rc.3.pom' '-DpomFile=artifacts/java/platform-parent-1.0.0-rc.3.pom'
+./mvnw.cmd org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=artifacts/java/foundation-1.0.0-rc.3.jar' '-DpomFile=artifacts/java/foundation-1.0.0-rc.3.pom'
+./mvnw.cmd -f services/sample-java-service/pom.xml clean package
 docker build -t local/sample-java:0.1.0 services/sample-java-service
 ```
 
@@ -75,7 +77,7 @@ Python 的 requirements.lock 固定传递依赖及源摘要，SDK wheel 来自�
 uv build --project services/sample-python-service --wheel --out-dir services/sample-python-service/wheels
 ```
 
-将 artifacts/python 中 SDK wheel 复制到上述 wheels 目录；在 Python 3.12 Linux 构建环境执行 `pip wheel --require-hashes --find-links=<wheels> -r requirements.lock -w <wheels>`，然后 `docker build -t local/sample-python:0.1.0 services/sample-python-service`。SDK 与项目 wheel 须为当前发行，不能复用另一个版本的同名缓存。Windows Docker 的 volume 路径需用绝对路径。Python API 入口为 sample-api；迁移入口独立使用 Alembic，不启动 API。
+将 artifacts/python 中 SDK wheel 复制到上述 wheels 目录；在 Python 3.12 Linux 构建环境执行 `pip wheel --require-hashes --find-links=<wheels> -r requirements.lock -w <wheels>`，然后 `docker build -t local/sample-python:0.1.0 services/sample-python-service`。SDK 与项目 wheel 须为当前发行，wheels 必须是本次 Linux 锁文件对应的干净目录，不能混入旧 SDK、旧依赖或 Windows wheel。Dockerfile 显式安装这些 wheel 并执行 pip check，避免重新解析时拒绝已经锁定的预发行依赖。升级 SDK 后重新锁定依赖并导出 requirements.lock；uv 对本地 find-links wheel 可能不导出摘要，须按实际发行 wheel 的 SHA-256 补齐该项 --hash，不能跳过 --require-hashes。Windows Docker 的 volume 路径需用绝对路径。Python API 入口为 sample-api；迁移入口独立使用 Alembic，不启动 API。
 
 ## 5. 业务数据库和权限目录
 
@@ -89,6 +91,8 @@ uv run --frozen python deploy/scripts/migrate.py --env-file .local/environment.e
 ```
 
 使用 bootstrap 输出的对应 PUBLISHER client_id，通过 deploy/scripts/sync_permissions.py 发布各自 permissions.yaml。参数：--identity-origin（管理机可达的身份服务 origin）、--app-env、--client-id、--secret-file（bootstrap 中对应服务的发布密码文件）、--manifest、--release-version。本地 HTTP 仅允许 loopback。这个内部 API 不从 Nginx/Gateway 公开，管理机应经受控网络/TLS 或本地 loopback 端口访问。
+
+两个 `--manifest` 的实际路径分别为 `services/sample-java-service/src/main/resources/permissions.yaml` 和 `services/sample-python-service/src/sample_service/resources/permissions.yaml`；它们不在服务根目录。`--secret-file` 分别指向 `.local/runtime/identity-bootstrap-secrets/sample-java-service.password` 与 `sample-python-service.password`。`--client-id` 必须取 bootstrap 输出的对应 PUBLISHER 值，不能用服务名代替。
 
 发布成功只让权限进入目录，新权限不会自动授予普通用户。
 
@@ -114,7 +118,7 @@ uv run --frozen python deploy/scripts/migrate.py --env-file .local/environment.e
 
 登记完成后，Gateway 的 bff.json 才增加 web（secret_file、requested_scopes）；Gateway 环境增加 GATEWAY_INTROSPECTION_CLIENTS_SECRET_FILE 指向 readers.json，其形状为 readers 数组，每项 audience/client_id/secret_file。逐项与将发布的路由对应。
 
-将 examples/config/nacos 中所选服务配置合入项目 config/nacos，发布业务路由前必须先完成 Gateway 内省凭据；只保留项目实际启用的路由。随后重启 Gateway 和启动业务：
+将 examples/config/nacos 中所选服务的 YAML 与 Sentinel JSON 一并合入项目 config/nacos，发布业务路由前必须先完成 Gateway 内省凭据；只保留项目实际启用的路由。随后重启 Gateway 和启动业务：
 
 ```bash
 uv run --frozen python config/publish.py --env-file .local/environment.env
@@ -169,3 +173,11 @@ compose.env 需补齐 SAMPLE_JAVA_IMAGE/SAMPLE_PYTHON_IMAGE。浏览器打开 PU
 本地从 slim-c02/V8 到 rc.1/V9 的旧库迁移及兼容应用回退有独立验证记录。V9 是新增绑定表，回退前提是第三方入口未启用且旧镜像已移除委派/模拟；这不是允许任意旧版本回退。数据库恢复测试使用隔离新库，不能直接覆盖运行库。实际多机与外部提供方仍待环境验收。
 
 服务器入口、证书与失败恢复的具体材料见 [发布操作说明](../deploy/ansible/README.md)。候选可使用随附离线镜像归档迁入本机 Docker；正式跨机发布需推到团队获准的镜像仓库并取得 repository@sha256 引用，当前未对外发布。
+
+## 9. 流量保护
+
+示例网关为 Java/Python 路由配置 RedisRateLimiter（每秒补充 20 令牌、容量 40）；BFF 自动派生并共用桶。Java POM 显式带 Sentinel core/datasource-nacos，配置含 enabled 与两份 JSON；Python 的 runtime.install(app) 在资源安全安装前调用，入站 64、对 Java 出站 32。数值只是演示，正式项目按压测调整。
+
+参数来自 config/nacos，环境地址与秘密仍在 runtime env/秘密文件。用现有 config/publish.py 发布：JSON 有效变更动态应用，路由/池/Python 参数需要重启对应服务。Java 缺少规则不注册，运行中无效规则保留旧值；明确清空用 []。检查每个 Java 实例日志中的 dataId/sha256，不能把发布成功当成所有实例同时应用。
+
+Python 默认不带通用熔断器；使用 runtime.http 获得并发与连接池保护。Java 使用注入的 ServiceHttpClient，不额外加第二层埋点。429 是租户/机器额度不足；503 SERVICE_BUSY/DEPENDENCY_BUSY 是容量不足；503 DEPENDENCY_CIRCUIT_OPEN 是 Java 依赖熔断；Redis 故障为 503 RATE_LIMIT_UNAVAILABLE。写操作不自动重试。

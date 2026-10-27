@@ -23,7 +23,7 @@ def test_shared_gateway_route_contract(tmp_path, case):
     (tmp_path / f"{case['service']}.yaml").write_text(
         yaml.safe_dump({"gateway": case["block"]}), encoding="utf-8"
     )
-    assert (validate_nacos_source(tmp_path) == []) == case["valid"]
+    assert any("已退役" in issue for issue in validate_nacos_source(tmp_path))
 
 
 def test_gateway_readers_are_secret_file_binding_and_never_remote_configuration(
@@ -45,4 +45,4 @@ def test_shared_configuration_cannot_publish_gateway_routes(tmp_path):
     (tmp_path / "application-shared.yaml").write_text(
         "gateway: {routes: []}\n", encoding="utf-8"
     )
-    assert any("Gateway 显式路由" in issue for issue in validate_nacos_source(tmp_path))
+    assert any("已退役" in issue for issue in validate_nacos_source(tmp_path))

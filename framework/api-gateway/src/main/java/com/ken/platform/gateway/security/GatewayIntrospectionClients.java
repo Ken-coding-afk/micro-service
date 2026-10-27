@@ -22,13 +22,10 @@ public final class GatewayIntrospectionClients implements AutoCloseable {
   public GatewayIntrospectionClients(
       Environment environment,
       RuntimeParameters parameters,
+      GatewayRoutes routes,
       ServiceDiscovery discovery,
       Clock clock) {
-    var audiences =
-        parameters.gatewayRoutes().stream()
-            .filter(route -> route.api())
-            .map(route -> route.audience())
-            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    var audiences = routes.audiences();
     String reference = environment.getProperty("GATEWAY_INTROSPECTION_CLIENTS_SECRET_FILE");
     var created = new HashMap<String, ResourceIntrospector>();
     try {

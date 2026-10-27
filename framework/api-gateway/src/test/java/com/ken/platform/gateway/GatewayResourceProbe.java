@@ -1,6 +1,5 @@
 package com.ken.platform.gateway;
 
-import com.ken.platform.foundation.config.GatewayRouteSpec;
 import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.NacosRuntime;
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
@@ -46,15 +45,15 @@ public final class GatewayResourceProbe {
   static class Fixture {
     @Bean
     RuntimeParameters platformParameters() {
-      return new RuntimeParameters(
-          "INFO",
-          2,
-          10,
-          1,
-          true,
-          List.of(
-              new GatewayRouteSpec(
-                  "identity-api", "/api/v1/identity/**", "identity-service", "identity-service")));
+      return RouteFixtures.parameters(
+          RouteFixtures.route(
+              "identity-api", "/api/v1/identity/**", "identity-service", "identity-service"));
+    }
+
+    @Bean
+    org.springframework.cloud.gateway.config.GatewayProperties gatewayProperties(
+        RuntimeParameters parameters) {
+      return RouteFixtures.properties(parameters);
     }
 
     @Bean

@@ -23,7 +23,7 @@ def package(output: Path, wheel: Path, images: dict[str, str]) -> dict:
     if output.exists():
         raise ValueError("发行目录已存在，拒绝覆盖")
     required = [
-        ROOT / "foundation/target/foundation-1.0.0-rc.2.jar",
+        ROOT / "foundation/target/foundation-1.0.0-rc.3.jar",
         ROOT / "identity-service/target/identity-service.jar",
         ROOT / "api-gateway/target/api-gateway.jar",
         wheel,
@@ -61,8 +61,8 @@ def package(output: Path, wheel: Path, images: dict[str, str]) -> dict:
         "* text=auto eol=lf\n*.cmd text eol=crlf\n", encoding="utf-8"
     )
     copy(ROOT / "examples/.gitignore", ".gitignore")
-    copy(ROOT / "pom.xml", "artifacts/java/platform-parent-1.0.0-rc.2.pom")
-    copy(ROOT / "foundation/pom.xml", "artifacts/java/foundation-1.0.0-rc.2.pom")
+    copy(ROOT / "pom.xml", "artifacts/java/platform-parent-1.0.0-rc.3.pom")
+    copy(ROOT / "foundation/pom.xml", "artifacts/java/foundation-1.0.0-rc.3.pom")
     for source in required[:3]:
         copy(source, "artifacts/java/" + source.name)
     copy(wheel, "artifacts/python/" + wheel.name)
@@ -76,8 +76,8 @@ def package(output: Path, wheel: Path, images: dict[str, str]) -> dict:
                 target.write_bytes(jar.read(name))
     manifest = {
         "status": "candidate",
-        "java_version": "1.0.0-rc.2",
-        "python_version": "1.0.0rc2",
+        "java_version": "1.0.0-rc.3",
+        "python_version": "1.0.0rc3",
         "images": images,
         "files": {},
     }
