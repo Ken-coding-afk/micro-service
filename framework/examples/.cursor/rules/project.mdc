@@ -1,6 +1,0 @@
----
-description: 项目工程规范与确认边界
-alwaysApply: true
----
-
-遵循项目根 AGENTS.md，并阅读 docs/standards/01-项目编码规范.md 与相应语言规范。命令工作目录和验证范围见 docs/guides/04-新项目开发与规范升级指南.md。不要复制另一套规则或假定个人 MCP/技能已安装。

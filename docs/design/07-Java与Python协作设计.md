@@ -1,6 +1,6 @@
 # Java与Python协作设计
 
-> 文档版本：1.7；文档集基线：D-20261027-04；更新：2026-10-27。  
+> 文档版本：1.9；文档集基线：D-20261027-07；更新：2026-10-27。  
 > 状态：已确认的目标设计；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：公共包、同步调用与可选消息；服务寻址引用配置设计；不提供业务任务运行时。  
 > 导航：[文档总入口](../01-文档导航.md)；本次流量保护任务与证据见[实施计划](../plans/2026-10-27-限流熔断与并发保护-plan.md)；历史混合接入见[原计划](../plans/2026-10-27-混合项目接入与审查修正-plan.md)。
@@ -20,6 +20,22 @@
 <a id="sdk"></a>
 
 ## 1. 服务职责和公共包范围
+
+项目根 POM 仅聚合 `vendor/micro-service` 和本项目 Java 服务。框架自身 POM 继续聚合三个核心模块；项目不能再重复聚合 java-sdk，避免 reactor 重复模块。
+
+业务 POM 继承固定框架父版本，`relativePath` 指向 `../../vendor/micro-service/pom.xml`，java-sdk 使用父 POM 的依赖管理。例：在项目根通过 Maven wrapper 执行 `-pl :equipment-service -am package`，只构建该服务及必要父/基础库，不要求本地已有 java-sdk JAR。wrapper 使用 vendor 内同版本入口，不为每个项目维护第二份 wrapper。
+
+IDE 导入项目根 POM，直接调试业务启动类并附带生成的运行绑定；使用 `manage.py dev` 时复用已有 dev.py 校验环境和凭据，再构建必要依赖并启动。Ctrl+C 只结束本次进程；不按端口号杀死其他项目进程。Java 与 Python 通信仍走 SDK/HTTP，不能依赖对方源码包。
+
+### Python 源码与环境
+
+采用 **uv 本地路径依赖**，不把所有服务放进同一 uv workspace。原因：算法服务第三方依赖较重，项目内各服务仍需独立锁定和发布；不复制 vlpykernel 的全局 uv.lock 耦合。
+
+每个 Python 服务保留 `pyproject.toml`、`uv.lock` 和自己的 `.venv`；开发时 SDK 指向 `../../vendor/micro-service/python-sdk`，`editable = true`。SDK 版本约束与所引用源码的 metadata 必须一致。创建/添加服务时按当前固定源码解析并生成锁文件；后续安装执行 `uv sync --frozen`，不能每次启动隐式重锁。`uv lock` 失败时项目创建不宣称完成；保留未完成目录供排错。
+
+框架工具环境与业务环境分开：工具使用固定源码里的 pyproject.toml 和 uv.lock，虚拟环境落到项目 `.local/tools-venv`，不修改 vendor 的锁文件。版本引用更新后重新同步工具环境。Python IDE 选择对应服务解释器；当前生成的 launch.json 只提供 Java 附加配置；Java 不进入 uv 成员列表。
+
+增加第三方 Python 依赖只修改该服务的 pyproject/lock，其他项目和兄弟服务的锁文件不变化。生产构建通过锁文件安装依赖并将 SDK/业务转为非 editable 安装；不把开发期的源码挂载带到生产。
 
 以下名称是拟提供的接口，不是现有库可以直接调用的函数。
 
@@ -136,7 +152,7 @@ Java 可调用 Python，Python 也可调用 Java；选择哪一方发起由领�
 
 Java 保留 `ServiceHttpClient.request(...)`，Python 保留 `await ServiceHttpClient.request(...)`。Java 资源名为 `http.outbound/<逻辑服务名>`，对同一依赖的所有实例合并治理；不能使用租户、用户、完整 URL 动态生成无限资源。资源名由 SDK 固定生成，业务规则文件按此命名。
 
-Java 使用 Spring Cloud Alibaba 2025.1.0.0 BOM 管理的 Sentinel 1.8.9 核心和 `sentinel-datasource-nacos`，沿用官方 AsyncEntry/Tracer/规则管理 API；Reactor 适配按实际生命周期复用。不再引入上一版 Java 熔断组件，不擅升 Boot/Cloud。基础包中的自动装配仅在服务明确启用时执行，不能因 Gateway 引用 foundation 就自动重复装配 Servlet、WebClient 或网关埋点；不同时启用自动 WebClient 埋点和 SDK 手工埋点。
+Java 使用 Spring Cloud Alibaba 2025.1.0.0 BOM 管理的 Sentinel 1.8.9 核心和 `sentinel-datasource-nacos`，沿用官方 AsyncEntry/Tracer/规则管理 API；Reactor 适配按实际生命周期复用。不再引入上一版 Java 熔断组件，不擅升 Boot/Cloud。基础包中的自动装配仅在服务明确启用时执行，不能因 Gateway 引用 java-sdk 就自动重复装配 Servlet、WebClient 或网关埋点；不同时启用自动 WebClient 埋点和 SDK 手工埋点。
 
 **统计单位为一次逻辑 SDK 调用。** 顺序为：检查 deadline 和发现实例 → Sentinel 异步准入（并发与熔断）→ 执行 HTTP 与允许的 GET 重试 → 读取完整普通响应 → 记录最终分类 → exit。整个逻辑调用占一个 Entry；失败后一次 GET 重试仍受原 deadline 和 Entry 约束，不累计成两个熔断样本。半开探针也是一个逻辑调用，可能包含最多两次 HTTP 尝试；不读取或修改 Sentinel 私有状态以另写探针策略。熔断拒绝不重试。
 
@@ -214,7 +230,7 @@ RabbitMQ 的 publisher confirm 和 consumer ack 是两个独立确认，只分�
 
 ## 7. 独立项目示例
 
-Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，使用已发行包；不依赖 framework 源码路径。单语言项目只复制一个，组合项目使用不同逻辑服务名。示例实现一种普通资源的创建/查询及 SELF/TENANT 检查，权限由服务制品同步到同一个通用管理页。
+Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，生成时引用固定 vendor 源码。新项目默认同时有两语言服务；明确不需要某个服务时连同配置与资源声明移除。示例实现一种普通资源的创建/查询及 SELF/TENANT 检查，权限由服务制品同步到同一个通用管理页。
 
 验收先单语言独立启动、登录、两租户隔离，再验证 Java→Python 与 Python→Java HTTP。启用消息才安装 mq 适配与 RabbitMQ，另验证发送确认、重复投递、提交后 ack 与未知版本隔离；不阻塞纯 HTTP 示例。
 
@@ -226,3 +242,7 @@ Java 与 Python 示例各有独立依赖/构建/迁移/权限清单，使用已�
 - 2026-10-27，D-20261027-03：统一混合项目目录及接入路径；业务配置扩展、管理页和发布恢复合同按计划 05 修正；实际验收见计划 05。
 
 - 2026-10-27，D-20261027-04：按已确认 Sentinel 计划同步原生网关、Java 动态规则、Python 并发和调用边界；目标合同不代表已完成运行验收。
+
+- 2026-10-27，D-20261027-06：按源码工作区计划修订项目创建、来源、初始化与交付边界；验收见该计划，历史结果不追改。
+
+- 2026-10-27，D-20261027-07：同步已确认的根目录、SDK、template/tools/tests 与项目命令职责；行为规则仍按本文定义，运行验收状态见当前计划。

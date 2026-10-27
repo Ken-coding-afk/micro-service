@@ -16,7 +16,7 @@ __pycache__/
 
 # Node
 node_modules/
-framework/identity-service/admin/dist/
+services/identity-service/admin/dist/
 
 # IDE
 .idea/

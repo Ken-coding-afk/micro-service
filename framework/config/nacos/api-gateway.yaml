@@ -1,3 +1,0 @@
-# api-gateway 运行参数(仅允许覆盖 application-shared 声明的键;
-# 公开路由属于本 Data ID 的版本化内容,滚动重启生效,不做任意热刷新)
-log_level: INFO

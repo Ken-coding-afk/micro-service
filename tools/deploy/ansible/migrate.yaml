@@ -1,0 +1,51 @@
+- ansible.builtin.import_playbook: controller-start.yaml
+- name: 唯一迁移机逐数据库迁移，禁止放入 serial 发布批次
+  hosts: migration_controller
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - ansible.builtin.assert:
+        that:
+          - groups['migration_controller'] | length == 1
+          - backup_reference | length > 0
+          - not backup_reference.startswith('replace-')
+    - ansible.builtin.include_tasks: tasks/preflight.yaml
+      vars:
+        release_phase: migrate
+    - name: 按清单顺序执行官方迁移适配
+      ansible.builtin.command:
+        argv:
+          - "{{ tools_python }}"
+          - "{{ project_root }}/tools/deploy/migrate.py"
+          - --env-file
+          - "{{ environment_file }}"
+          - --resources
+          - "{{ project_root }}/infra/resources.yaml"
+          - --target
+          - "{{ item.target }}"
+          - --tool
+          - "{{ item.tool }}"
+          - --migrations-dir
+          - "{{ project_root }}/{{ item.path }}"
+          - --db-host
+          - "{{ migration_pg_host }}"
+          - --db-port
+          - "{{ migration_pg_port | string }}"
+          - --jdbc-host
+          - "{{ migration_container_pg_host }}"
+          - --jdbc-port
+          - "{{ migration_container_pg_port | string }}"
+          - --yes
+      loop: "{{ release.migrations }}"
+      loop_control:
+        label: "{{ item.target }}"
+      no_log: true
+      changed_when: true
+    - name: 管理机保存本发行迁移成功凭据
+      ansible.builtin.copy:
+        dest: "{{ control_state_dir }}/{{ project_code }}-{{ app_env }}/migration-{{ release.id }}.json"
+        content: "{{ {'release': release.id, 'manifest_sha256': lookup('ansible.builtin.file', release_file, rstrip=False) | hash('sha256'), 'status': 'completed', 'backup': backup_reference} | to_nice_json }}"
+        mode: '0600'
+      delegate_to: "{{ groups['release_controller'][0] }}"
+    - ansible.builtin.include_tasks: tasks/finish.yaml
+- ansible.builtin.import_playbook: controller-finish.yaml

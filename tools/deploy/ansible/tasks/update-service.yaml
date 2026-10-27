@@ -1,0 +1,54 @@
+- name: 更新前记录本服务已有镜像引用
+  ansible.builtin.command:
+    argv: [docker, ps, -a, --filter, "label=com.docker.compose.project={{ project_code }}-{{ app_env }}-apps", --filter, "label=com.docker.compose.service={{ application_service }}", --format, '{{ "{{" }}.Image{{ "}}" }}']
+  register: previous_service_images
+  changed_when: false
+- ansible.builtin.include_tasks: edge.yaml
+  when: application_service == 'nginx'
+- name: 身份就绪后发布本批权限目录
+  when: application_service not in ['identity-service','api-gateway','nginx']
+  block:
+    - ansible.builtin.assert:
+        that:
+          - permission_publications[application_service].manifest in release.files
+    - name: 通过正式 OAuth 客户端发布，不授予用户角色
+      ansible.builtin.command:
+        argv: ["{{ tools_python }}", "{{ project_root }}/tools/deploy/sync_permissions.py", --identity-origin, "{{ identity_control_origin }}", --app-env, "{{ app_env }}", --client-id, "{{ permission_publications[application_service].client_id }}", --secret-file, "{{ permission_publications[application_service].secret_file }}", --manifest, "{{ project_root }}/{{ permission_publications[application_service].manifest }}", --release-version, "{{ release.id }}"]
+      no_log: true
+      changed_when: true
+- name: 停止实例前记录可恢复证据，不将已开始视为成功
+  ansible.builtin.copy:
+    dest: "{{ project_root }}/.local/operations/{{ operation_id }}-{{ application_service }}.json"
+    content: "{{ {'operation_id': operation_id, 'host': inventory_hostname, 'service': application_service, 'status': 'started', 'target_image': release.images[application_service], 'previous_images': previous_service_images.stdout_lines, 'previous_config': (edge_config_backup.backup_file | default(none)) if application_service == 'nginx' else none} | to_nice_json }}"
+    mode: '0600'
+- name: 应用优雅停止，容器退出前由服务注销发现与排空请求
+  community.docker.docker_compose_v2:
+    project_src: "{{ project_root }}"
+    files: "{{ release.compose_files }}"
+    env_files: ["{{ compose_env_file }}"]
+    services: ["{{ application_service }}"]
+    state: stopped
+    dependencies: false
+    timeout: 30
+  no_log: true
+- name: 启动选定服务并等待 readiness
+  community.docker.docker_compose_v2:
+    project_src: "{{ project_root }}"
+    files: "{{ release.compose_files }}"
+    env_files: ["{{ compose_env_file }}"]
+    services: ["{{ application_service }}"]
+    dependencies: false
+    state: present
+    build: never
+    pull: never
+    remove_orphans: false
+    remove_volumes: false
+    wait: true
+    wait_timeout: 180
+    timeout: 30
+  no_log: true
+- name: 保存服务 readiness 成功证据
+  ansible.builtin.copy:
+    dest: "{{ project_root }}/.local/operations/{{ operation_id }}-{{ application_service }}-ready.json"
+    content: "{{ {'operation_id': operation_id, 'host': inventory_hostname, 'service': application_service, 'status': 'ready', 'image': release.images[application_service]} | to_nice_json }}"
+    mode: '0600'

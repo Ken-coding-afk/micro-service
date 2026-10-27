@@ -1,0 +1,58 @@
+- name: 读取管理机审核过的发行清单
+  ansible.builtin.include_vars:
+    file: "{{ release_file }}"
+    name: release
+- name: 核对主机输入
+  ansible.builtin.assert:
+    that:
+      - project_root is match('^/[^\r\n]+$')
+      - project_root != '/'
+      - tools_python is match('^/[^\r\n]+$')
+      - project_code is match('^[a-z][a-z0-9-]{0,63}$')
+      - app_env in ['test', 'prod']
+      - operation_id is match('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$')
+      - release.project == project_code
+      - release.environment == app_env
+- name: 核对远端清单与管理机完全相同
+  ansible.builtin.stat:
+    path: "{{ project_root }}/deploy/release.yaml"
+    checksum_algorithm: sha256
+  register: release_stat
+- ansible.builtin.assert:
+    that:
+      - release_stat.stat.checksum == (lookup('ansible.builtin.file', release_file, rstrip=False) | hash('sha256'))
+- name: 检查发行文件与不可变镜像清单
+  ansible.builtin.command:
+    argv:
+      - "{{ tools_python }}"
+      - "{{ project_root }}/tools/deploy/verify_release.py"
+      - --root
+      - "{{ project_root }}"
+      - --release
+      - "{{ project_root }}/deploy/release.yaml"
+      - --project
+      - "{{ project_code }}"
+      - --environment
+      - "{{ app_env }}"
+      - --environment-file
+      - "{{ environment_file }}"
+      - --phase
+      - "{{ release_phase }}"
+  register: verified_release
+  changed_when: false
+- ansible.builtin.set_fact:
+    application_network: "{{ (verified_release.stdout | from_json).network }}"
+- name: 创建本机记录目录
+  ansible.builtin.file:
+    path: "{{ project_root }}/.local/operations"
+    state: directory
+    mode: '0700'
+- name: 原子获取目标主机锁
+  ansible.builtin.command:
+    argv: [mkdir, '--', "{{ project_root }}/.local/operations/lock"]
+  changed_when: true
+- name: 保存本机操作范围
+  ansible.builtin.copy:
+    dest: "{{ project_root }}/.local/operations/lock/owner.json"
+    content: "{{ {'operation_id': operation_id, 'release': release.id, 'host': inventory_hostname} | to_nice_json }}"
+    mode: '0600'

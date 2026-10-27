@@ -1,0 +1,14 @@
+.local
+.git
+**/.git
+**/.mypy_cache
+**/.local
+**/node_modules
+**/target
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.log
+**/*.env
+**/secrets

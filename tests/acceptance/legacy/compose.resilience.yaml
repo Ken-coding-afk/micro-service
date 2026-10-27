@@ -1,0 +1,21 @@
+# 仅本地故障验收：与 deploy/compose.yaml、compose.local.yaml、tests/acceptance/legacy/compose.yaml 合并。
+services:
+  api-gateway:
+    ports:
+      - "127.0.0.1:${RESILIENCE_GATEWAY_A_PORT:-19092}:8080"
+  gateway-peer:
+    extends:
+      file: ../../../template/deploy/compose.yaml
+      service: api-gateway
+    environment:
+      SERVICE_ADVERTISE_HOST: gateway-peer
+      JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2 -Xmx256m
+    ports:
+      - "127.0.0.1:${RESILIENCE_GATEWAY_B_PORT:-19093}:8080"
+  sample-java-peer:
+    extends:
+      file: compose.yaml
+      service: sample-java-service
+    environment:
+      SERVICE_ADVERTISE_HOST: sample-java-peer
+      JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2 -Xmx256m
