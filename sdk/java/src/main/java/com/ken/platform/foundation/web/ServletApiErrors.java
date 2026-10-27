@@ -35,7 +35,7 @@ public final class ServletApiErrors implements HandlerExceptionResolver {
           .forEach((key, values) -> values.forEach(value -> response.addHeader(key, value)));
       if (error.status() == 500)
         org.slf4j.LoggerFactory.getLogger(getClass())
-            .error("请求处理失败 type={}", failure.getClass().getSimpleName());
+            .error("请求处理失败 {}", ApiErrors.diagnostic(failure));
       response.getOutputStream().write(RequestContexts.error(error, context));
       return new ModelAndView();
     } catch (java.io.IOException failed) {

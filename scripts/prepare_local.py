@@ -1,5 +1,6 @@
 """仅为本地示例准备应用绑定；先执行 infra 初始化与迁移，再运行本入口。"""
 
+import ipaddress
 import json
 import secrets
 import subprocess
@@ -258,3 +259,60 @@ def monitoring_inputs(root: Path, config: dict, env: dict, host: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(targets, indent=2), encoding="utf-8")
     return target
+
+
+def sync_local_monitoring_proxy(root: Path, env_path: Path) -> bool:
+    """本地默认环境已运行后，按实际网关实例刷新单IP信任，不猜测/扩大网段。"""
+    env = contract.parse_env_file(env_path).values
+    if "monitoring" not in env.get("COMPOSE_PROFILES", "").split(","):
+        return False
+    if env.get("APP_ENV") != "local":
+        raise ValueError("仅local自动核对容器地址；部署环境使用固定网关主机来源")
+    if not (root / ".local/runtime/compose.env").is_file():
+        raise ValueError("请先不带monitoring完成一次默认初始化，再启用监控")
+    command = [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(root),
+        "--env-file",
+        str(root / ".local/runtime/compose.env"),
+        "-f",
+        str(root / "deploy/compose.yaml"),
+        "-f",
+        str(root / ".local/runtime/host.compose.yaml"),
+        "ps",
+        "-q",
+        "api-gateway",
+    ]
+    ids = subprocess.check_output(command, text=True, stderr=subprocess.PIPE, timeout=15).split()
+    if len(ids) != 1:
+        raise ValueError("启用本地监控前必须有且仅有一个运行中的网关；先完成默认初始化")
+    networks = json.loads(
+        subprocess.check_output(
+            ["docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", ids[0]],
+            text=True,
+            stderr=subprocess.PIPE,
+            timeout=15,
+        )
+    )
+    network = env.get("INFRA_NETWORK", env["PROJECT_CODE"] + "-local-net")
+    binding = networks.get(network, {})
+    address = ipaddress.ip_address(binding.get("IPAddress") or binding.get("GlobalIPv6Address", ""))
+    if (
+        not address.is_private
+        or address.is_loopback
+        or address.is_unspecified
+        or address.is_multicast
+    ):
+        raise ValueError("网关没有本项目网络内的合法私网地址")
+    value = str(address) + "/" + str(address.max_prefixlen)
+    if env.get("MONITORING_PROXY_CIDRS") == value:
+        return False
+    # 只改此local派生字段，保留其他字段/秘密/注释。
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in lines if line.split("=", 1)[0].strip() != "MONITORING_PROXY_CIDRS"]
+    lines.append("MONITORING_PROXY_CIDRS=" + value)
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env_path.chmod(0o600)
+    return True

@@ -20,6 +20,17 @@ import reactor.core.publisher.Mono;
 import tools.jackson.databind.json.JsonMapper;
 
 class ApiErrorsTest {
+  @Test
+  void safeDiagnosticPreservesLocationWithoutExceptionMessage() {
+    var diagnostic = ApiErrors.diagnostic(new IllegalStateException("password=private"));
+    assertThat(diagnostic)
+        .contains(
+            "IllegalStateException",
+            "safeDiagnosticPreservesLocationWithoutExceptionMessage",
+            "ApiErrorsTest.java:")
+        .doesNotContain("password", "private");
+  }
+
   @RestController
   static class Controller {
     @GetMapping("/api/validation")

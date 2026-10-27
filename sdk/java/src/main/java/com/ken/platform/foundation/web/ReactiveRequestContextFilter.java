@@ -54,7 +54,7 @@ public final class ReactiveRequestContextFilter implements WebFilter, Ordered {
               exchange.getResponse().getHeaders().putAll(ApiErrors.headers(failure));
               if (error.status() == 500)
                 org.slf4j.LoggerFactory.getLogger(getClass())
-                    .error("请求处理失败 type={}", failure.getClass().getSimpleName());
+                    .error("请求处理失败 {}", ApiErrors.diagnostic(failure));
               return exchange
                   .getResponse()
                   .writeWith(

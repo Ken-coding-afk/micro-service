@@ -6,12 +6,68 @@ import pytest
 import yaml
 
 from scripts.config.contract import EnvFile, validate_env
-from scripts.prepare_local import metrics_binding, monitoring_inputs
+from scripts.prepare_local import metrics_binding, monitoring_inputs, sync_local_monitoring_proxy
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("infra_up_monitoring", ROOT / "scripts/infra/up.py")
 up = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(up)
+
+
+def test_local_proxy_sync_is_optional_idempotent_and_tracks_only_current_network(
+    tmp_path, monkeypatch
+):
+    env = tmp_path / "environment.env"
+    env.write_text("PROJECT_CODE=fixture\nAPP_ENV=local\nSECRET=preserved\n", encoding="utf-8")
+    calls = []
+    address = ["172.22.0.5"]
+
+    def output(command, **kwargs):
+        calls.append(command)
+        if command[1] == "inspect":
+            return json.dumps(
+                {
+                    "fixture-local-net": {"IPAddress": address[0]},
+                    "other": {"IPAddress": "172.23.0.9"},
+                }
+            )
+        return "gateway-fixture\n"
+
+    monkeypatch.setattr("scripts.prepare_local.subprocess.check_output", output)
+    assert not sync_local_monitoring_proxy(tmp_path, env)
+    assert calls == []
+    env.write_text(env.read_text() + "COMPOSE_PROFILES=monitoring\nMONITORING_PROXY_CIDRS = old\n")
+    with pytest.raises(ValueError, match="默认初始化"):
+        sync_local_monitoring_proxy(tmp_path, env)
+    runtime = tmp_path / ".local/runtime"
+    runtime.mkdir(parents=True)
+    (runtime / "compose.env").write_text("fixture")
+    assert sync_local_monitoring_proxy(tmp_path, env)
+    assert "MONITORING_PROXY_CIDRS=172.22.0.5/32" in env.read_text()
+    assert env.read_text().count("MONITORING_PROXY_CIDRS") == 1
+    assert not sync_local_monitoring_proxy(tmp_path, env)
+    address[0] = "172.22.0.6"
+    assert sync_local_monitoring_proxy(tmp_path, env)
+    assert "SECRET=preserved" in env.read_text()
+    assert "MONITORING_PROXY_CIDRS=172.22.0.6/32" in env.read_text()
+    address[0] = "8.8.8.8"
+    before = env.read_bytes()
+    with pytest.raises(ValueError):
+        sync_local_monitoring_proxy(tmp_path, env)
+    assert env.read_bytes() == before
+
+
+def test_java_healthchecks_use_main_port_when_management_port_changes():
+    base = yaml.safe_load((ROOT / "deploy/compose.yaml").read_text(encoding="utf-8"))
+    for name, port in (("identity-service", 8081), ("api-gateway", 8080)):
+        probe = " ".join(base["services"][name]["healthcheck"]["test"])
+        assert f"{port}/readyz" in probe
+        assert "MANAGEMENT_SERVER_PORT" not in probe
+    generated = yaml.safe_load(
+        (ROOT / "deploy/generated.services.yaml").read_text(encoding="utf-8")
+    )
+    probe = " ".join(generated["services"]["sample-java-service"]["healthcheck"]["test"])
+    assert "SERVICE_BIND_PORT" in probe and "/readyz" in probe
 
 
 def test_disabled_monitoring_has_no_targets_or_bindings(tmp_path):

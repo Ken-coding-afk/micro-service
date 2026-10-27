@@ -38,34 +38,30 @@ class ServiceHttpClient:
         if remaining <= 0:
             raise DeadlineExceeded()
         started = time.monotonic()
+        response = await self.request(service, method, path, json=json)
+        if not response.is_success:
+            code = "DEPENDENCY_REJECTED"
+            try:
+                value = response.json() if len(response.content) <= 65536 else {}
+                candidate = value.get("code") if isinstance(value, dict) else None
+                if isinstance(candidate, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", candidate):
+                    code = candidate
+            except ValueError:
+                pass
+            raise PlatformError(code, "依赖未返回成功响应", response.status_code)
+        if time.monotonic() - started >= remaining:
+            raise DeadlineExceeded()
+        if response.status_code == 204 and response_type is type(None):
+            return None  # type: ignore[return-value]
         try:
-            async with asyncio.timeout(remaining):
-                response = await self.request(service, method, path, json=json)
-                if not response.is_success:
-                    code = "DEPENDENCY_REJECTED"
-                    try:
-                        value = response.json() if len(response.content) <= 65536 else {}
-                        candidate = value.get("code") if isinstance(value, dict) else None
-                        if isinstance(candidate, str) and re.fullmatch(
-                            r"[A-Z][A-Z0-9_]{0,63}", candidate
-                        ):
-                            code = candidate
-                    except ValueError:
-                        pass
-                    raise PlatformError(code, "依赖未返回成功响应", response.status_code)
-                if response.status_code == 204 and response_type is type(None):
-                    return None  # type: ignore[return-value]
-                try:
-                    result = TypeAdapter(response_type).validate_json(response.content, strict=True)
-                except (ValidationError, ValueError, TypeError):
-                    raise PlatformError(
-                        "DEPENDENCY_INVALID_RESPONSE", "依赖响应不符合声明的类型", 502
-                    ) from None
-                if time.monotonic() - started >= remaining:
-                    raise DeadlineExceeded()
-                return result
-        except TimeoutError:
-            raise DeadlineExceeded() from None
+            result = TypeAdapter(response_type).validate_json(response.content, strict=True)
+        except (ValidationError, ValueError, TypeError):
+            raise PlatformError(
+                "DEPENDENCY_INVALID_RESPONSE", "依赖响应不符合声明的类型", 502
+            ) from None
+        if time.monotonic() - started >= remaining:
+            raise DeadlineExceeded()
+        return result
 
     def __init__(
         self,
@@ -154,16 +150,30 @@ class ServiceHttpClient:
                 headers["Authorization"] = f"Bearer {context.access_token}"
             if context.traceparent:
                 headers["traceparent"] = context.traceparent
+        last_failure: httpx.TransportError | None = None
         for attempt in range(attempts):
             remaining = min(deadline - time.time(), monotonic_deadline - time.monotonic())
             if remaining <= 0:
-                raise DeadlineExceeded()
+                raise DeadlineExceeded() from last_failure
             instance = self.discovery.choose(service)
             timeout = httpx.Timeout(
                 remaining,
                 connect=min(remaining, self.parameters.connect_timeout_seconds),
                 pool=min(remaining, 1.0),
             )
+            io_started = False
+
+            async def trace(name, info):
+                nonlocal io_started
+                if name in {
+                    "connection.connect_tcp.started",
+                    "connection.connect_unix_socket.started",
+                    "connection.start_tls.started",
+                    "http11.send_request_headers.started",
+                    "http2.send_request_headers.started",
+                }:
+                    io_started = True
+
             try:
                 async with asyncio.timeout(remaining):
                     return await self.client.request(
@@ -173,6 +183,7 @@ class ServiceHttpClient:
                         headers=headers,
                         timeout=timeout,
                         follow_redirects=False,
+                        extensions={"trace": trace},
                     )
             except httpx.PoolTimeout:
                 self.metrics.reject("http.outbound/pool", "pool_timeout")
@@ -182,13 +193,17 @@ class ServiceHttpClient:
                     self.metrics.cancelled.labels("outbound").inc()
                 raise
             except TimeoutError as exc:
-                # 总预算可能耗在本地池等待，不能凭这一异常摘除健康实例。
+                # HTTPcore公开trace区分池等待与已开始的网络I/O；不读任何请求正文。
+                if io_started:
+                    raise DeadlineExceeded() from httpx.TimeoutException("远端I/O预算耗尽")
                 raise DeadlineExceeded() from exc
             except httpx.TimeoutException as exc:
+                last_failure = exc
                 self.discovery.invalidate(service, instance)
                 if attempt + 1 == attempts:
                     raise DeadlineExceeded() from exc
             except httpx.TransportError as exc:
+                last_failure = exc
                 self.discovery.invalidate(service, instance)
                 if attempt + 1 == attempts:
                     raise DependencyUnavailable() from exc

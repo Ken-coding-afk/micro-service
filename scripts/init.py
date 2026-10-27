@@ -378,8 +378,9 @@ def initialize(root: Path, args) -> None:
     if issues:
         raise ValueError("项目配置未通过校验：" + "; ".join(issues))
     env_path, host = prepare_environment(root, config, args.dev_host)
-    initial_env = env_values(env_path)
     prepare = load_tool("scripts/prepare_local.py")
+    prepare.sync_local_monitoring_proxy(root, env_path)
+    initial_env = env_values(env_path)
     targets = prepare.monitoring_inputs(root, config, initial_env, host)
     os.environ["MONITORING_TARGETS_FILE"] = str(targets)
     if with_demo and (
@@ -581,6 +582,8 @@ def initialize(root: Path, args) -> None:
             resources_prepared=True,
         )
     compose(root, "up", "-d", "--wait", "api-gateway", "nginx")
+    if enabled and prepare.sync_local_monitoring_proxy(root, env_path):
+        tool(root, "scripts/infra/up.py", "--env-file", env_path, "--service", "grafana")
     compose(
         root,
         "exec",
@@ -588,7 +591,7 @@ def initialize(root: Path, args) -> None:
         "api-gateway",
         "curl",
         "-fsS",
-        f"http://{host}:{port}/actuator/health/readiness",
+        f"http://{host}:{port}/readyz",
     )
     compose(root, "exec", "-T", "nginx", "nginx", "-t")
     compose(root, "exec", "-T", "nginx", "nginx", "-s", "reload")
@@ -612,7 +615,7 @@ def main() -> int:
     try:
         initialize(FRAMEWORK, parser.parse_args())
         return 0
-    except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"初始化停止：{type(error).__name__}：{error}；保留已有数据和秘密，修正原因后重跑。")
         return 1
 

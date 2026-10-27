@@ -80,7 +80,7 @@ uv run --frozen python scripts/add_service.py --repo <远程URL> --ref <完整�
 uv run --frozen python scripts/init.py --env local --services scoring-service
 ```
 
-按输出完成管理员客户端范围/租户绑定和角色授权，再重新登录。新服务默认没有 peer 调用。初始两业务直接提交主仓；后续 submodule 先 push 子仓再提交主仓 gitlink。另一开发者 git clone --recurse-submodules，独立 local 不需要 A 的 .local；共享环境从受控渠道取回原秘密，不生成替代密码。
+按输出完成管理员客户端范围/租户绑定和角色授权，再重新登录。在 .github/workflows/checks.yml 的对应语言矩阵登记新服务 module 和定向 tests；漏登记或测试不存在时 CI 会失败。新服务默认没有 peer 调用。初始两业务直接提交主仓；后续 submodule 先 push 子仓再提交主仓 gitlink。另一开发者 git clone --recurse-submodules，独立 local 不需要 A 的 .local；共享环境从受控渠道取回原秘密，不生成替代密码。
 
 ## 5. SQL 与测试
 
@@ -320,7 +320,14 @@ def generate(args: argparse.Namespace) -> None:
     )
     # 相同流水线交付新项目，仅移除框架维护专用 job。
     copy_source(FRAMEWORK / ".github", root / ".github")
-    checks = read_yaml(root / ".github/workflows/checks.yml")
+    checks_path = root / ".github/workflows/checks.yml"
+    write(
+        checks_path,
+        checks_path.read_text(encoding="utf-8")
+        .replace("sample-java-service", args.java_service)
+        .replace("sample-python-service", args.python_service),
+    )
+    checks = read_yaml(checks_path)
     checks["jobs"].pop("maintenance", None)
     write_yaml(root / ".github/workflows/checks.yml", checks)
     # 项目操作说明保留，但不带框架设计/历史计划。

@@ -30,7 +30,7 @@ Java 服务声明 java-sdk 依赖，启动类保留 `@PlatformService` 和 Sprin
 
 普通业务调用经过鉴权后取得可信租户和主体。Java Servlet/MDC、Reactor/Context Propagation、Python contextvars 自动关联 request_id、tenant_id、trace_id，服务字段为 service。未认证、平台身份没有租户时留空，不伪造默认租户。
 
-Java 默认使用 Boot 结构化 console 日志，MDC 在退出时恢复。Python 进程入口调用 `configure_logging(service)`，默认 JSON；样例 Uvicorn 使用 `log_config=None` 保留此配置。已有业务 handler 不被替换，会获得日志字段；自定义 formatter 必须包含这些字段，后加 handler 要装 `ContextLogFilter(service)`。不要在 logger message 中记录 token、Cookie、密码、签名 URL 或完整个人资料。
+Java 默认使用 Boot 结构化 console 日志，MDC 在退出时恢复。Python 进程入口调用 `configure_logging(service)`，默认 JSON；样例 Uvicorn 使用 `log_config=None` 保留此配置。已有业务 handler 不被替换，会获得日志字段；自定义 formatter 必须包含这些字段，后加 handler 要装 `ContextLogFilter(service)`。框架未知异常日志保留异常类型及最多32帧文件/函数/行号，帮助定位；Python logger.exception 的默认 formatter 同样只提取这些安全帧，不输出异常消息、源码行或局部变量。外部响应不带栈。不要在 logger message 中记录 token、Cookie、密码、签名 URL 或完整个人资料。
 
 业务 API/BFF 的错误为：
 

@@ -3,8 +3,25 @@
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
 from .context import current_context
+
+
+def exception_frames(error: BaseException) -> list[dict]:
+    """保留定位所需帧，不格式化异常正文、源码行或局部变量。"""
+    result: list[dict] = []
+    trace = error.__traceback__
+    while trace is not None and len(result) < 32:
+        result.append(
+            {
+                "file": Path(trace.tb_frame.f_code.co_filename).name,
+                "function": trace.tb_frame.f_code.co_name,
+                "line": trace.tb_lineno,
+            }
+        )
+        trace = trace.tb_next
+    return result
 
 
 class ContextLogFilter(logging.Filter):
@@ -35,8 +52,12 @@ class ContextJsonFormatter(logging.Formatter):
                 for name in ("service", "request_id", "tenant_id", "trace_id")
             },
         }
-        if record.exc_info and record.exc_info[0]:
-            data["exception_type"] = record.exc_info[0].__name__
+        if record.exc_info and record.exc_info[1]:
+            data["exception_type"] = type(record.exc_info[1]).__name__
+            data["exception_frames"] = exception_frames(record.exc_info[1])
+        elif hasattr(record, "exception_frames"):
+            data["exception_type"] = getattr(record, "exception_type", None)
+            data["exception_frames"] = record.exception_frames
         return json.dumps(data, ensure_ascii=False)
 
 

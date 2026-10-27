@@ -134,7 +134,9 @@ public class PlatformResourceSecurityAutoConfiguration {
                   HttpMethod.GET,
                   "/actuator/health",
                   "/actuator/health/liveness",
-                  "/actuator/health/readiness")
+                  "/actuator/health/readiness",
+                  "/readyz",
+                  "/livez")
               .permitAll()
               .requestMatchers("/api/**", "/internal/**")
               .authenticated()

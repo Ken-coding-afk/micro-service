@@ -288,7 +288,9 @@ public class AuthorizationServerConfig {
                     org.springframework.http.HttpMethod.GET,
                     "/actuator/health",
                     "/actuator/health/liveness",
-                    "/actuator/health/readiness")
+                    "/actuator/health/readiness",
+                    "/readyz",
+                    "/livez")
                 .permitAll()
                 .requestMatchers(
                     org.springframework.http.HttpMethod.GET,

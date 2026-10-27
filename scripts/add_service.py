@@ -137,6 +137,9 @@ def add_service(root: Path, args: argparse.Namespace) -> None:
     print(
         f"已接入 {target} @ {commit}；请检查 diff，初始化技术资源并显式分配业务权限；未提交或推送。"
     )
+    print(
+        "请在 .github/workflows/checks.yml 的对应语言矩阵中登记服务和定向测试；遗漏时 CI 会失败。"
+    )
 
 
 def main() -> int:

@@ -133,7 +133,9 @@ public class GatewaySecurityConfiguration {
                   HttpMethod.GET,
                   "/actuator/health",
                   "/actuator/health/liveness",
-                  "/actuator/health/readiness")
+                  "/actuator/health/readiness",
+                  "/readyz",
+                  "/livez")
               .permitAll();
           if (routes.publicPaths().length > 0)
             requests.pathMatchers(routes.publicPaths()).permitAll();

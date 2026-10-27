@@ -51,6 +51,8 @@ class EnvironmentBindingTest {
     new PlatformEnvironmentPostProcessor()
         .postProcessEnvironment(environment, new SpringApplication(ServiceFixture.class));
     assertThat(environment.getProperty("server.port")).isEqualTo("8100");
+    assertThat(environment.getProperty("management.endpoint.health.probes.add-additional-paths"))
+        .isEqualTo("true");
     assertThat(environment.getProperty("spring.cloud.nacos.discovery.register-enabled"))
         .isEqualTo("false");
     assertThat(

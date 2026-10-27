@@ -8,8 +8,9 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .concurrency import admission
-from .context import current_context, request_context
+from .context import RequestContext, current_context, request_context
 from .errors import PlatformError
+from .log_context import exception_frames
 
 
 def _api(path: str) -> bool:
@@ -149,7 +150,25 @@ class PlatformMiddleware:
             except Exception as exc:
                 if response_started or not _api(scope.get("path", "")):
                     raise
-                logging.getLogger(__name__).error("请求处理失败 type=%s", type(exc).__name__)
+                # 鉴权yield依赖退出后上下文已恢复；仅使用适配层保存的可信快照。
+                trusted = scope.get("state", {}).get("platform_context")
+                if (
+                    not isinstance(trusted, RequestContext)
+                    or trusted.request_id != context.request_id
+                ):
+                    trusted = context
+                with request_context(
+                    tenant_id=trusted.tenant_id,
+                    principal_id=trusted.principal_id,
+                    traceparent=trusted.traceparent,
+                ):
+                    frames = exception_frames(exc)
+                    logging.getLogger(__name__).error(
+                        "请求处理失败 type=%s frames=%s",
+                        type(exc).__name__,
+                        frames,
+                        extra={"exception_type": type(exc).__name__, "exception_frames": frames},
+                    )
                 await _response(
                     PlatformError("INTERNAL_ERROR", "服务暂时无法处理请求", 500), context.request_id
                 )(scope, receive, send_with_request_id)

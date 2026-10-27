@@ -427,6 +427,8 @@ def test_created_nacos_configuration_only_contains_selected_services(workspace):
 def test_initializer_passes_project_redis_template(workspace, monkeypatch):
     import init as local
 
+    write(workspace / ".local/environment.env", "APP_ENV=local\n")
+
     class StopBeforeInfrastructure(Exception):
         pass
 
@@ -474,8 +476,9 @@ def test_maven_wrapper_is_published_as_executable():
     assert b"\r\n" not in (FRAMEWORK / "mvnw").read_bytes()
 
 
+@pytest.mark.parametrize("monitoring", [False, True])
 def test_initialization_orders_config_identity_catalog_then_business_migration(
-    workspace, monkeypatch
+    workspace, monkeypatch, monitoring
 ):
     from types import SimpleNamespace
 
@@ -491,7 +494,9 @@ def test_initialization_orders_config_identity_catalog_then_business_migration(
         "PG_MODE": "external",
         "PUBLIC_ORIGIN": "http://localhost:18280",
         "IDENTITY_ADMIN_PORT": "18281",
+        "COMPOSE_PROFILES": "monitoring" if monitoring else "",
     }
+    write(env_path, "".join(f"{key}={value}\n" for key, value in env.items()))
     monkeypatch.setattr(local, "prepare_environment", lambda *a: (env_path, "127.0.0.1"))
     monkeypatch.setattr(local, "env_values", lambda *a: dict(env))
     monkeypatch.setattr(local, "run", lambda *a, **k: None)
@@ -515,15 +520,21 @@ def test_initialization_orders_config_identity_catalog_then_business_migration(
 
     monkeypatch.setattr(local, "bind_business", bind)
     original = local.load_tool
-    monkeypatch.setattr(
-        local,
-        "load_tool",
-        lambda name: (
-            SimpleNamespace(publish=lambda *args: events.append(("permissions",)))
-            if name.endswith("sync_permissions.py")
-            else original(name)
-        ),
-    )
+
+    def load(name):
+        if name.endswith("sync_permissions.py"):
+            return SimpleNamespace(publish=lambda *args: events.append(("permissions",)))
+        module = original(name)
+        if monitoring and name.endswith("prepare_local.py"):
+
+            def changed(*args):
+                events.append(("proxy-sync",))
+                return True
+
+            module.sync_local_monitoring_proxy = changed
+        return module
+
+    monkeypatch.setattr(local, "load_tool", load)
     local.initialize(
         workspace, argparse.Namespace(dev_host=None, services="inspection-service", with_demo=False)
     )
@@ -540,6 +551,12 @@ def test_initialization_orders_config_identity_catalog_then_business_migration(
     )
     assert not any("equipment-service-db" in event for event in events)
     assert not any("bootstrap-local" in event for event in events)
+    assert any("http://127.0.0.1:18281/readyz" in event for event in events)
+    if monitoring:
+        syncs = [i for i, event in enumerate(events) if event == ("proxy-sync",)]
+        gateway = events.index(("compose", "up", "-d", "--wait", "api-gateway", "nginx"))
+        grafana = next(i for i, event in enumerate(events) if "grafana" in event)
+        assert len(syncs) == 2 and syncs[0] < gateway < syncs[1] < grafana
 
 
 def test_partial_build_reuses_core_and_rejects_changed_core_inputs(

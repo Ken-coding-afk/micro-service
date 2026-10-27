@@ -19,11 +19,47 @@ concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - &id001
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      with:
+        persist-credentials: false
+        submodules: recursive
+    - &id002
+      uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
+      with:
+        version: 0.13.5
+        python-version: '3.12'
+    - run: |
+        uv sync --frozen
+        uv run --frozen ruff check scripts
+        uv run --frozen python - <<'PY'
+        from pathlib import Path
+        import yaml
+        workflow = yaml.safe_load(Path('.github/workflows/checks.yml').read_text())
+        services = yaml.safe_load(Path('config/services.yaml').read_text())['services']
+        for language in ('java', 'python'):
+            entries = workflow['jobs'][language]['strategy']['matrix']['include']
+            expected = {'sdk/' + language} | {v['directory'] for v in services.values() if v['language'] == language}
+            actual = {v['module'] for v in entries}
+            if expected != actual or len(actual) != len(entries):
+                raise SystemExit(f'{language}: CI模块与服务登记不一致，请更新显式测试矩阵: {expected ^ actual}')
+            for entry in entries:
+                tests = entry['tests'].split(',' if language == 'java' else ' ')
+                for test in tests:
+                    matches = list((Path(entry['module']) / 'src/test/java').rglob(test + '.java')) if language == 'java' else [Path(test)]
+                    if not test or not matches or any(not path.is_file() for path in matches):
+                        raise SystemExit(f"{entry['module']}: 已声明测试不存在: {test}")
+        print('服务与显式定向测试清单一致')
+        PY
   java:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-    - &id001
+    - &id003
       uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
       with:
         persist-credentials: false
@@ -36,54 +72,77 @@ jobs:
       with:
         node-version: 24.13.0
     - run: npm install --global pnpm@11.12.0
-    - run: 'chmod +x mvnw
-
-        ./mvnw -B test -Dtest=ApiErrorsTest,DeveloperContextTest,ItemDeadlineTest,TypedServiceCallTest,ServiceCallContractTest,CurrentPrincipalTest,NativeComponentSettingsTest,ItemControllerTest,PasswordCredentialsTest,AuditDetailSanitizerTest,BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest,PlatformMetricsAutoConfigurationTest,MonitoringScopeUpgradeTest,ManagementAuditsTest
-        -Dsurefire.failIfNoSpecifiedTests=false'
+    - env:
+        MODULE: ${{ matrix.module }}
+        TESTS: ${{ matrix.tests }}
+      run: |
+        chmod +x mvnw
+        ./mvnw -B -pl "$MODULE" -am install -DskipTests
+        ./mvnw -B -pl "$MODULE" test -Dtest="$TESTS" -Dsurefire.failIfNoSpecifiedTests=true -DfailIfNoTests=true
+    needs: scope
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - module: sdk/java
+          tests: ApiErrorsTest,DeveloperContextTest,EnvironmentBindingTest,TypedServiceCallTest,ServiceCallContractTest,CurrentPrincipalTest,NativeComponentSettingsTest,PlatformMetricsAutoConfigurationTest
+        - module: services/identity-service
+          tests: PasswordCredentialsTest,AuditDetailSanitizerTest,MonitoringScopeUpgradeTest,ManagementAuditsTest
+        - module: services/api-gateway
+          tests: BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest
+        - module: services/sample-java-service
+          tests: ItemDeadlineTest,ItemControllerTest
   python:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
     - *id001
-    - &id002
-      uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
-      with:
-        version: 0.13.5
-        python-version: '3.12'
-    - run: "uv sync --frozen\nuv run --frozen ruff check scripts\nuv sync --frozen --all-extras --project sdk/python\n\
-        uv run --frozen --all-extras --project sdk/python ruff check sdk/python/src\nuv run --frozen --all-extras\
-        \ --project sdk/python mypy --config-file sdk/python/pyproject.toml sdk/python/src\nuv run --frozen --all-extras\
-        \ --project sdk/python pytest -c sdk/python/pyproject.toml --confcutdir=sdk/python sdk/python/tests/test_http.py\
-        \ sdk/python/tests/test_typed_http.py sdk/python/tests/test_circuit.py sdk/python/tests/test_config.py sdk/python/tests/test_context_web.py\n\
-        \nuv run --frozen --all-extras --project sdk/python pytest -c sdk/python/pyproject.toml --confcutdir=sdk/python\
-        \ sdk/python/tests/test_observation.py sdk/python/tests/test_api_errors.py sdk/python/tests/test_developer_context.py\
-        \ sdk/python/tests/test_database_readiness.py\n\nfor directory in services/*; do\n  if [ -f \"$directory/pyproject.toml\"\
-        \ ] && [ -f \"$directory/tests/test_items.py\" ]; then\n    uv sync --frozen --project \"$directory\"\n\
-        \    uv run --frozen --project \"$directory\" ruff check \"$directory/src\"\n    uv run --frozen --project\
-        \ \"$directory\" pytest -c \"$directory/pyproject.toml\" --confcutdir=\"$directory\" \"$directory/tests/test_items.py\"\
-        \ \"$directory/tests/test_business_config.py\" \"$directory/tests/test_application.py\" || exit 1\n  fi\n\
-        done"
+    - *id002
+    - env:
+        MODULE: ${{ matrix.module }}
+        TESTS: ${{ matrix.tests }}
+      run: |
+        uv sync --frozen --all-extras --project "$MODULE"
+        uv run --frozen --all-extras --project "$MODULE" ruff check "$MODULE/src"
+        if [ "$MODULE" = "sdk/python" ]; then
+          uv run --frozen --all-extras --project "$MODULE" mypy --config-file "$MODULE/pyproject.toml" "$MODULE/src"
+        fi
+        # TESTS来自本仓库可审查矩阵，每个路径无空格，不接受外部输入。
+        uv run --frozen --all-extras --project "$MODULE" pytest -c "$MODULE/pyproject.toml" --confcutdir="$MODULE" $TESTS
+    needs: scope
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - module: sdk/python
+          tests: sdk/python/tests/test_http.py sdk/python/tests/test_typed_http.py sdk/python/tests/test_circuit.py
+            sdk/python/tests/test_config.py sdk/python/tests/test_context_web.py sdk/python/tests/test_observation.py
+            sdk/python/tests/test_api_errors.py sdk/python/tests/test_developer_context.py sdk/python/tests/test_database_readiness.py
+        - module: services/sample-python-service
+          tests: services/sample-python-service/tests/test_items.py services/sample-python-service/tests/test_business_config.py
+            services/sample-python-service/tests/test_application.py
   admin:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-    - *id001
+    - *id003
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
       with:
         node-version: 24.13.0
-    - run: 'npm install --global pnpm@11.12.0
-
+    - run: |-
+        npm install --global pnpm@11.12.0
         pnpm --dir services/identity-service/admin install --frozen-lockfile
-
-        pnpm --dir services/identity-service/admin verify:build'
+        pnpm --dir services/identity-service/admin verify:build
     - run: pnpm --dir services/identity-service/admin exec vitest run tests/monitoring-page.test.ts tests/admin-context.test.ts
   maintenance:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-    - *id001
-    - *id002
-    - run: 'uv sync --frozen
-
-        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_test_execution.py
-        tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py'
+    - *id003
+    - uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
+      with:
+        version: 0.13.5
+        python-version: '3.12'
+    - run: |-
+        uv sync --frozen
+        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_test_execution.py tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py tests/config/test_monitoring.py

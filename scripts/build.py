@@ -182,7 +182,7 @@ def business_compose(config: dict) -> dict:
         probe = (
             [
                 "CMD-SHELL",
-                'curl -fsS "http://localhost:$${MANAGEMENT_SERVER_PORT:-$${SERVICE_BIND_PORT}}/actuator/health/readiness"',
+                'curl -fsS "http://localhost:$${SERVICE_BIND_PORT}/readyz"',
             ]
             if record["language"] == "java"
             else [

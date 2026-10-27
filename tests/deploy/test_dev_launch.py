@@ -1,3 +1,4 @@
+import argparse
 import importlib.util
 import sys
 from pathlib import Path
@@ -11,6 +12,49 @@ spec = importlib.util.spec_from_file_location(
 )
 dev = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dev)
+
+
+def test_reload_watches_business_and_editable_sdk_sources(tmp_path, monkeypatch):
+    directory = tmp_path / "services/inspection"
+    record = {"language": "python", "app_factory": "inspection:create_app"}
+    monkeypatch.setattr(dev, "project_config", lambda root: {"services": {"inspection": record}})
+    monkeypatch.setattr(dev, "service_directory", lambda root, item: directory)
+    monkeypatch.setattr(dev, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        dev,
+        "prepare",
+        lambda *args, **kwargs: (
+            directory,
+            [],
+            {"SERVICE_BIND_HOST": "127.0.0.1", "SERVICE_BIND_PORT": "8083"},
+        ),
+    )
+    calls = []
+
+    class Process:
+        def __init__(self, command, **kwargs):
+            calls.append((command, kwargs))
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(dev.subprocess, "Popen", Process)
+    assert (
+        dev.dev(
+            tmp_path,
+            argparse.Namespace(
+                service="inspection", reload=True, prepare_only=False, tenant_code=""
+            ),
+        )
+        == 0
+    )
+    command, options = calls[0]
+    watches = [command[i + 1] for i, value in enumerate(command) if value == "--reload-dir"]
+    assert watches == [str(directory / "src"), str(tmp_path / "sdk/python/src")]
+    assert options["cwd"] == directory
 
 
 def project(root):

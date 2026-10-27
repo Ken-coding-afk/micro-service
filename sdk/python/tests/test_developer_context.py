@@ -18,6 +18,85 @@ from ken_platform_sdk.errors import DeadlineExceeded
 from ken_platform_sdk.log_context import ContextJsonFormatter, ContextLogFilter
 
 
+def test_exception_formatter_retains_safe_location_without_exception_secrets():
+    logger = logging.getLogger("safe-stack-fixture")
+    output = io.StringIO()
+    handler = logging.StreamHandler(output)
+    handler.setFormatter(ContextJsonFormatter())
+    handler.addFilter(ContextLogFilter("fixture"))
+    logger.addHandler(handler)
+    try:
+        try:
+            raise RuntimeError("password=private-body")
+        except RuntimeError:
+            logger.exception("处理失败")
+        row = json.loads(output.getvalue())
+        assert row["exception_type"] == "RuntimeError"
+        frame = row["exception_frames"][-1]
+        assert (
+            frame["function"]
+            == "test_exception_formatter_retains_safe_location_without_exception_secrets"
+        )
+        assert frame["file"] == "test_developer_context.py" and frame["line"] > 0
+        assert "private-body" not in output.getvalue()
+        assert set(frame) == {"file", "function", "line"}
+    finally:
+        logger.removeHandler(handler)
+
+
+async def test_error_log_keeps_authenticated_tenant_after_yield_dependency_exits():
+    import httpx
+    from fastapi import Depends, FastAPI, Request
+
+    from ken_platform_sdk.web import PlatformMiddleware, install_error_handlers
+
+    app = FastAPI()
+    app.add_middleware(PlatformMiddleware)
+    install_error_handlers(app)
+    tenants = {"first": uuid.uuid4(), "second": uuid.uuid4()}
+
+    async def authenticated(request: Request):
+        # 模拟鉴权完成后的可信主体，忽略请求者提供的租户头。
+        with request_context(tenant_id=tenants[request.path_params["name"]]) as context:
+            request.state.platform_context = context
+            yield context
+
+    @app.get("/api/failure/{name}", dependencies=[Depends(authenticated)])
+    async def failure(name: str):
+        await asyncio.sleep(0)
+        raise RuntimeError("private-secret")
+
+    logger = logging.getLogger("ken_platform_sdk.web")
+    output = io.StringIO()
+    handler = logging.StreamHandler(output)
+    handler.addFilter(ContextLogFilter("fixture"))
+    handler.setFormatter(ContextJsonFormatter())
+    logger.addHandler(handler)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            responses = await asyncio.gather(
+                *(
+                    client.get(
+                        "/api/failure/" + name,
+                        headers={"X-Request-Id": name, "X-Tenant-Id": "forged"},
+                    )
+                    for name in tenants
+                )
+            )
+        assert all(response.status_code == 500 for response in responses)
+        rows = [json.loads(line) for line in output.getvalue().splitlines()]
+        assert len(rows) == 2
+        for row in rows:
+            assert row["tenant_id"] == str(tenants[row["request_id"]])
+            assert row["exception_frames"][-1]["function"] == "failure"
+        assert "private-secret" not in output.getvalue()
+        assert current_context.get() is None
+    finally:
+        logger.removeHandler(handler)
+
+
 async def test_log_records_follow_concurrent_contexts_and_to_thread_without_credentials():
     output = io.StringIO()
     handler = logging.StreamHandler(output)

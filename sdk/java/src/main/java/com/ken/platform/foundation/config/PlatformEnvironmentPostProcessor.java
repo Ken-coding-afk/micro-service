@@ -111,6 +111,7 @@ public final class PlatformEnvironmentPostProcessor implements EnvironmentPostPr
         "springdoc.swagger-ui.oauth2-redirect-url",
         "http://localhost:" + port + "/swagger-ui/oauth2-redirect.html");
     fixed.put("management.endpoint.health.probes.enabled", true);
+    fixed.put("management.endpoint.health.probes.add-additional-paths", true);
     fixed.put("management.endpoint.health.show-details", "never");
     fixed.put("server.address", values.getOrDefault("SERVICE_BIND_HOST", "0.0.0.0"));
     // 先保留真实连接对端，代理信任由框架 CIDR 边界处理，不能提前被转发头改写。

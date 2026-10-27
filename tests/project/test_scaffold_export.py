@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -92,13 +93,20 @@ def test_generated_project_has_one_source_and_independent_entries(project):
         (project / ".github/workflows/checks.yml").read_text(encoding="utf-8")
     )
     assert "maintenance" not in workflow["jobs"]
-    python_steps = "\n".join(step.get("run", "") for step in workflow["jobs"]["python"]["steps"])
+    entries = workflow["jobs"]["python"]["strategy"]["matrix"]["include"]
+    python_tests = next(
+        row["tests"] for row in entries if row["module"] == "services/inspection-service"
+    )
     for test in ("test_items.py", "test_business_config.py", "test_application.py"):
-        assert test in python_steps
+        assert test in python_tests
         assert (project / "services/inspection-service/tests" / test).is_file()
     assert not (project / "tests/acceptance/legacy").exists()
     assert (project / "tests/acceptance/smoke.cjs").is_file()
     assert (project / "docs/guides/05-工程检查与监控指南.md").is_file()
+    for guide in (project / "docs/guides").glob("*.md"):
+        for link in re.findall(r"\]\(([^)]+\.md(?:#[^)]*)?)\)", guide.read_text(encoding="utf-8")):
+            if not link.startswith(("https://", "http://")):
+                assert (guide.parent / link.split("#", 1)[0]).is_file(), (guide, link)
     assert "scripts/init.py" in (project / "README.md").read_text(encoding="utf-8")
     assert "vendor/micro-service" not in (project / "pom.xml").read_text(encoding="utf-8")
     for name in ("init", "dev", "add_service", "build", "package", "migrate", "compose"):
@@ -109,6 +117,34 @@ def test_generated_project_has_one_source_and_independent_entries(project):
         )
         assert result.returncode == 0, (name, result.stderr)
     assert ".vscode/launch.json" in git(project, "ls-files")
+
+
+def test_generated_ci_rejects_missing_service_and_missing_test(project):
+    path = project / ".github/workflows/checks.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    shell = next(step["run"] for step in workflow["jobs"]["scope"]["steps"] if "run" in step)
+    code = shell.split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+
+    def check():
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    assert check().returncode == 0
+    entries = workflow["jobs"]["python"]["strategy"]["matrix"]["include"]
+    entry = entries.pop()
+    path.write_text(yaml.safe_dump(workflow, allow_unicode=True), encoding="utf-8")
+    result = check()
+    assert result.returncode != 0 and "CI模块" in result.stderr
+    entry["tests"] = "services/inspection-service/tests/missing.py"
+    entries.append(entry)
+    path.write_text(yaml.safe_dump(workflow, allow_unicode=True), encoding="utf-8")
+    result = check()
+    assert result.returncode != 0 and "测试不存在" in result.stderr
 
 
 def test_create_exports_explicit_commit_not_dirty_generator(project, tmp_path, monkeypatch):

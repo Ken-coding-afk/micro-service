@@ -46,6 +46,15 @@ public final class ApiErrors {
     };
   }
 
+  static String diagnostic(Throwable failure) {
+    return failure.getClass().getSimpleName()
+        + " frames="
+        + java.util.Arrays.stream(failure.getStackTrace())
+            .limit(32)
+            .map(StackTraceElement::toString)
+            .collect(java.util.stream.Collectors.joining(" <- "));
+  }
+
   static HttpHeaders headers(Throwable failure) {
     HttpHeaders headers = new HttpHeaders();
     headers.setCacheControl("no-store");
