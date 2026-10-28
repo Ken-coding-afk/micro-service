@@ -44,11 +44,11 @@ jobs:
         \ -c 'import sys; paths=sys.stdin.read().splitlines(); print(\"needed=\" + str(any(not (p.endswith(\".md\"\
         ) or p.startswith((\"docs/\", \".cursor/\", \".codegraph/\"))) for p in paths)).lower())' >> \"$GITHUB_OUTPUT\"\
         \nfi"
-    - uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca
+    - uses: actions/cache/restore@3edfce9056124e459a23f683a21433670d47daca
       with:
         path: ~/.m2/repository/org/owasp/dependency-check-data
-        key: nvd-${{ runner.os }}-${{ github.run_id }}
-        restore-keys: nvd-${{ runner.os }}-
+        key: nvd-12.1.0-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: nvd-12.1.0-${{ runner.os }}-
       if: steps.scope.outputs.needed == 'true'
     - uses: actions/setup-java@816722acf8fd27c9d1e9ae6ee6085da07e0d44c1
       with:
@@ -64,13 +64,22 @@ jobs:
       with:
         node-version: 24.13.0
       if: steps.scope.outputs.needed == 'true'
+    # 先更新并保存数据库，后续审计发现漏洞也不会丢失已完成的冷启动缓存。
+    - name: Update vulnerability database from NVD feeds
+      run: ./mvnw -B -N org.owasp:dependency-check-maven:12.1.0:update-only -DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz
+      if: steps.scope.outputs.needed == 'true'
+    - uses: actions/cache/save@3edfce9056124e459a23f683a21433670d47daca
+      with:
+        path: ~/.m2/repository/org/owasp/dependency-check-data
+        key: nvd-12.1.0-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+      if: steps.scope.outputs.needed == 'true'
     - run: 'npm install --global pnpm@11.12.0
 
         chmod +x mvnw
 
         ./mvnw -B -DskipTests install
 
-        ./mvnw -B org.owasp:dependency-check-maven:12.1.0:aggregate -DfailBuildOnCVSS=7 -Dformats=JSON,HTML'
+        ./mvnw -B org.owasp:dependency-check-maven:12.1.0:aggregate -DfailBuildOnCVSS=7 -Dformats=JSON,HTML -DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz'
       if: steps.scope.outputs.needed == 'true'
     - run: "for directory in . sdk/python services/*; do\n  if [ -f \"$directory/pyproject.toml\" ]; then\n    uv\
         \ export --frozen --all-extras --project \"$directory\" --format requirements-txt --no-emit-local > /tmp/audit-requirements.txt\n\

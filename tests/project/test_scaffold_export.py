@@ -297,7 +297,9 @@ def test_new_python_submodule_has_portable_frozen_lock(project, tmp_path, monkey
 
     uv = shutil.which("uv")
     assert uv, "测试要求根 README 声明的 uv"
-    monkeypatch.setenv("UV_OFFLINE", "1")
+    # 冷缓存创建允许解析依赖；迁移目录后再离线检查锁文件的可移植性。
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+    monkeypatch.delenv("UV_OFFLINE", raising=False)
     remote = tmp_path / "python-remote"
     create_service(
         argparse.Namespace(
@@ -310,6 +312,7 @@ def test_new_python_submodule_has_portable_frozen_lock(project, tmp_path, monkey
     )
     git(remote, "init", "-b", "main")
     ref = commit(remote)
+    monkeypatch.setenv("UV_OFFLINE", "1")
     add_service(
         project,
         argparse.Namespace(
