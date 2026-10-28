@@ -36,6 +36,46 @@ def configuration(tmp_path):
     )
 
 
+@pytest.mark.parametrize("choice", ["cli", "env", "default"])
+def test_migrator_password_file_precedence(tmp_path, choice):
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    default = secrets / "service-migrator.password"
+    environment = tmp_path / "environment.password"
+    cli = tmp_path / "cli.password"
+    for path, value in [
+        (default, "default-secret"),
+        (environment, "env-secret"),
+        (cli, "cli-secret"),
+    ]:
+        path.write_text(value, encoding="utf-8")
+    args = migration.build_parser().parse_args(
+        [
+            "--target",
+            "service",
+            "--tool",
+            "alembic",
+            "--migrations-dir",
+            str(tmp_path),
+            "--env-file",
+            str(tmp_path / "environment.env"),
+            "--db-name",
+            "test_db",
+            "--db-user",
+            "test_migrator",
+        ]
+        + (["--password-file", str(cli)] if choice == "cli" else [])
+    )
+    env = {"MIGRATOR_PASSWORD_FILE": str(environment)} if choice != "default" else {}
+    cfg = migration.resolve_config(args, env)
+    assert cfg.password == f"{choice}-secret"
+    assert cfg.password not in repr(cfg)
+    if choice == "env":
+        environment.unlink()
+        with pytest.raises(migration.UsageError):
+            migration.resolve_config(args, env)
+
+
 def test_failed_run_retains_deployed_revision_hashes(tmp_path, monkeypatch):
     cfg = configuration(tmp_path)
     previous = {

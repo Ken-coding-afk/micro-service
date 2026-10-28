@@ -227,8 +227,7 @@ public class BffConfiguration {
                     .onErrorMap(
                         failure -> {
                           if (failure instanceof OAuth2AuthorizationException oauth
-                              && Set.of("invalid_grant", "invalid_client", "invalid_scope")
-                                  .contains(oauth.getError().getErrorCode()))
+                              && BffTokens.credentialError(oauth.getError().getErrorCode()))
                             return new OAuth2AuthenticationException(oauth.getError());
                           return new AuthenticationServiceException("身份服务暂不可用");
                         }),
@@ -255,42 +254,31 @@ public class BffConfiguration {
                     (exchange, failure) -> errors.commence(exchange.getExchange(), failure))
                 .authenticationSuccessHandler(
                     (exchange, authenticationResult) ->
-                        exchange
-                            .getExchange()
-                            .getSession()
-                            .flatMap(
-                                session ->
-                                    csrfTokens
-                                        .saveToken(exchange.getExchange(), null)
-                                        .then(session.changeSessionId())
-                                        .then(
-                                            Mono.defer(
-                                                () -> {
-                                                  var namespace =
-                                                      BffNamespace.forPath(
-                                                          exchange
-                                                              .getExchange()
-                                                              .getRequest()
-                                                              .getPath()
-                                                              .value());
-                                                  exchange
-                                                      .getExchange()
-                                                      .getResponse()
-                                                      .setStatusCode(HttpStatus.SEE_OTHER);
-                                                  exchange
-                                                      .getExchange()
-                                                      .getResponse()
-                                                      .getHeaders()
-                                                      .setLocation(
-                                                          java.net.URI.create(
-                                                              namespace == BffNamespace.WEB
-                                                                  ? "/"
-                                                                  : "/identity/admin/"));
-                                                  return exchange
-                                                      .getExchange()
-                                                      .getResponse()
-                                                      .setComplete();
-                                                })))));
+                        loginSucceeded(exchange.getExchange(), csrfTokens)));
     return http.build();
+  }
+
+  private static Mono<Void> loginSucceeded(
+      org.springframework.web.server.ServerWebExchange exchange,
+      org.springframework.security.web.server.csrf.ServerCsrfTokenRepository csrfTokens) {
+    return exchange
+        .getSession()
+        .flatMap(
+            session ->
+                csrfTokens
+                    .saveToken(exchange, null)
+                    .then(session.changeSessionId())
+                    .then(
+                        Mono.defer(
+                            () -> {
+                              var namespace =
+                                  BffNamespace.forPath(exchange.getRequest().getPath().value());
+                              exchange.getResponse().setStatusCode(HttpStatus.SEE_OTHER);
+                              exchange
+                                  .getResponse()
+                                  .getHeaders()
+                                  .setLocation(namespace.landingPage());
+                              return exchange.getResponse().setComplete();
+                            })));
   }
 }

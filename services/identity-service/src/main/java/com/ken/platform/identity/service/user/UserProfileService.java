@@ -46,8 +46,6 @@ public final class UserProfileService {
         ManagementAudits.Action.USER_PROFILE,
         target,
         () -> {
-          if (target == null || expectedVersion < 0)
-            throw new PlatformException("INVALID_ARGUMENT", "目标账号或版本不合法", 400);
           String name = AccountFields.displayName(displayName);
           UUID actor = authorization.actorFor(OPERATION);
           return transactions.execute(

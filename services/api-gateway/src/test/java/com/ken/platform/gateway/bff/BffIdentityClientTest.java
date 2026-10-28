@@ -32,6 +32,7 @@ class BffIdentityClientTest {
   private ServiceDiscovery discovery;
   private ClientRegistration client;
   private final AtomicInteger calls = new AtomicInteger();
+  private volatile String receivedDeadline;
   private volatile String mode = "normal";
   private final String subject = UUID.randomUUID().toString(),
       tenant = UUID.randomUUID().toString();
@@ -45,6 +46,7 @@ class BffIdentityClientTest {
         "/api/v1/identity/me",
         exchange -> {
           calls.incrementAndGet();
+          receivedDeadline = exchange.getRequestHeaders().getFirst("X-Request-Deadline");
           if (mode.equals("inactive")) {
             exchange.sendResponseHeaders(401, -1);
             exchange.close();
@@ -126,6 +128,33 @@ class BffIdentityClientTest {
   private BffIdentityClient identity(double budget) {
     return new BffIdentityClient(
         discovery, new RuntimeParameters("INFO", 1, budget, 1, true), Clock.systemUTC());
+  }
+
+  @Test
+  void forwardsEffectiveLocalDeadlineAndRejectsExpiredBeforeDiscovery() {
+    var start = Instant.now();
+    var parent = new CallContext("budget-id", null, null, null, null, start.plusSeconds(30));
+    identity(2)
+        .application("token", client)
+        .contextWrite(c -> c.put(CallContext.class, parent))
+        .block();
+    assertThat(Long.parseLong(receivedDeadline))
+        .isBetween(start.toEpochMilli(), start.plusSeconds(3).toEpochMilli());
+    var unavailableDiscovery = new ServiceDiscovery(System::nanoTime);
+    var service =
+        new BffIdentityClient(
+            unavailableDiscovery, new RuntimeParameters("INFO", 1, 2, 1, true), Clock.systemUTC());
+    var expired = new CallContext("expired", null, null, null, null, Instant.MIN);
+    assertThatThrownBy(
+            () ->
+                service
+                    .application("token", client)
+                    .contextWrite(c -> c.put(CallContext.class, expired))
+                    .block())
+        .isInstanceOfSatisfying(
+            PlatformException.class,
+            e -> assertThat(e.code()).isEqualTo("BFF_IDENTITY_UNAVAILABLE"));
+    assertThat(calls.get()).isEqualTo(1);
   }
 
   @Test

@@ -2,6 +2,7 @@ package com.ken.platform.identity.controller.management;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.ken.platform.foundation.http.PlatformException;
+import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.oauth.ClientManagementService;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;

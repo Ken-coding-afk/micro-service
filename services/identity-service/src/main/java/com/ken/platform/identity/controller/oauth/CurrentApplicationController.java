@@ -1,9 +1,8 @@
 package com.ken.platform.identity.controller.oauth;
 
-import com.ken.platform.foundation.http.CallContexts;
+import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.oauth.UserTokenService;
 import java.util.Map;
-import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.OAuth2AuthenticatedPrincipal;
@@ -19,12 +18,6 @@ public final class CurrentApplicationController {
     UserTokenService.ApplicationView view =
         principal.getAttribute(UserTokenService.APPLICATION_VIEW);
     if (view == null) throw new IllegalStateException("缺少服务器验证的应用投影");
-    var context = CallContexts.current();
-    String requestId =
-        context == null ? java.util.UUID.randomUUID().toString() : context.requestId();
-    return ResponseEntity.ok()
-        .cacheControl(CacheControl.noStore())
-        .header("X-Request-Id", requestId)
-        .body(Map.of("code", "OK", "message", "success", "data", view, "request_id", requestId));
+    return IdentityApiResponses.ok(view);
   }
 }

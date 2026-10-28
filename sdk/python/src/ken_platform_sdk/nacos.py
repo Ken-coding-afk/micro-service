@@ -6,7 +6,6 @@ import asyncio
 import logging
 import tempfile
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 
 from grpc import RpcError
 from v2.nacos import (
@@ -193,11 +192,5 @@ class NacosProvider:
         if any(isinstance(result, BaseException) for result in results):
             logging.getLogger(__name__).warning("部分 Nacos 客户端退出失败，请核对实例摘除")
         if self._cache is not None:
-            if (
-                not Path(self._cache.name)
-                .resolve()
-                .is_relative_to(self.settings.nacos_log_dir.resolve())
-            ):
-                raise RuntimeError("拒绝清理 Nacos 日志目录之外的缓存")
             self._cache.cleanup()
             self._cache = None

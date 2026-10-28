@@ -45,6 +45,7 @@ build-backend = "hatchling.build"
 packages = ["src/ken_platform_sdk"]
 
 [tool.ruff]
+target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
 

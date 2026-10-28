@@ -78,7 +78,6 @@ public final class SecurityPolicyManagementService {
         null,
         () -> {
           var patch = parse(input, false);
-          if (expectedVersion < 0) throw invalid();
           UUID actor = platform.actorFor("platform:security:manage");
           return transactions.execute(
               status -> {

@@ -82,8 +82,7 @@ def _prepare_local_files(args: argparse.Namespace) -> int:
         "NACOS_MODE": ("NACOS_ADMIN_", "NACOS_PUBLISH_", "NACOS_RUNTIME_"),
     }.items():
         if existing.get(mode) == "external" and any(
-            key.startswith(prefixes) and value.startswith("<")
-            for key, value in existing.items()
+            key.startswith(prefixes) and value.startswith("<") for key, value in existing.items()
         ):
             raise ValueError("external 组件必须提供已有凭据，不为外部环境随机生成密码")
     redis_template = Path(
@@ -110,11 +109,7 @@ def _prepare_local_files(args: argparse.Namespace) -> int:
                 "",
             )
             app_env = next(
-                (
-                    line.partition("=")[2].strip()
-                    for line in lines
-                    if line.startswith("APP_ENV=")
-                ),
+                (line.partition("=")[2].strip() for line in lines if line.startswith("APP_ENV=")),
                 "",
             )
             value = contract.resolve_namespace(code, app_env)
@@ -226,9 +221,7 @@ def _connect_pg(env: dict[str, str]):
     )
 
 
-def _nacos_login(
-    env: dict[str, str], bootstrap: bool = False
-) -> tuple[httpx.Client, str]:
+def _nacos_login(env: dict[str, str], bootstrap: bool = False) -> tuple[httpx.Client, str]:
     """经 console 端口登录获取 accessToken;首次启动时初始化 admin。
 
     实施发现(T-01/T-02,Nacos 3.2.4):console(8080)与引擎(8848)分离,
@@ -258,9 +251,7 @@ def _nacos_login(
 
     # 登录失败且从未初始化过 → 首次 admin 初始化(console 端口,Nacos 3.x 合同)
     if marker.exists() or not bootstrap:
-        raise SystemExit(
-            "Nacos admin 登录失败但已标记初始化过;不重置密码,请人工核对凭证"
-        )
+        raise SystemExit("Nacos admin 登录失败但已标记初始化过;不重置密码,请人工核对凭证")
     resp = client.post(
         f"{console}/v3/auth/user/admin",
         data={
@@ -269,9 +260,7 @@ def _nacos_login(
         },
     )
     if resp.status_code != 200:
-        raise SystemExit(
-            f"Nacos admin 初始化失败: HTTP {resp.status_code} {resp.text[:200]}"
-        )
+        raise SystemExit(f"Nacos admin 初始化失败: HTTP {resp.status_code} {resp.text[:200]}")
     marker.write_text("initialized\n", encoding="utf-8")
     token = _retry(lambda: login(), waits=(1, 2))
     if not token:
@@ -290,11 +279,6 @@ def _retry(fn, waits=(1, 3, 5)):
             return result
         time.sleep(wait)
     return result
-
-
-def _sql_quote(value: str) -> str:
-    """SQL 字符串字面量转义(凭证仅含 urlsafe 字符,双保险)。"""
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _ensure_pg_resource(res: dict, env: dict[str, str], state: dict) -> str:
@@ -378,9 +362,7 @@ def _ensure_pg_resource(res: dict, env: dict[str, str], state: dict) -> str:
                     "SELECT has_schema_privilege(%s, 'public', 'CREATE')", (runtime,)
                 ).fetchone()
                 if privilege is None or privilege[0]:
-                    print(
-                        f"[resources] CONFLICT: {runtime} 意外拥有 schema CREATE 权限"
-                    )
+                    print(f"[resources] CONFLICT: {runtime} 意外拥有 schema CREATE 权限")
                     return "CONFLICT"
 
         created_any = False
@@ -418,9 +400,7 @@ def _ensure_pg_resource(res: dict, env: dict[str, str], state: dict) -> str:
             conn.execute(f'CREATE DATABASE "{db_name}" OWNER "{owner}"')
         # 迁移/运行账号的库级最小权限;表级权限由各服务迁移负责授予
         conn.execute(
-            sql.SQL("GRANT {} TO {}").format(
-                sql.Identifier(owner), sql.Identifier(migrator)
-            )
+            sql.SQL("GRANT {} TO {}").format(sql.Identifier(owner), sql.Identifier(migrator))
         )
         conn.execute(f'GRANT CONNECT, TEMP ON DATABASE "{db_name}" TO "{migrator}"')
         conn.execute(f'GRANT CONNECT ON DATABASE "{db_name}" TO "{runtime}"')
@@ -485,9 +465,7 @@ def _ensure_nacos_identities(
     }
 
     def request(method, path, **kwargs):
-        response = client.request(
-            method, f"{console}/v3/auth/{path}", headers=headers, **kwargs
-        )
+        response = client.request(method, f"{console}/v3/auth/{path}", headers=headers, **kwargs)
         body = response.json()
         if response.status_code != 200 or body.get("code") != 0:
             raise ValueError(f"Nacos 身份核对/配置失败: {path}")
@@ -531,9 +509,7 @@ def _ensure_nacos_identities(
             )
             or {}
         )
-        present = {
-            (item["resource"], item["action"]) for item in current.get("pageItems", [])
-        }
+        present = {(item["resource"], item["action"]) for item in current.get("pageItems", [])}
         if present - permissions:
             return "CONFLICT"
         for resource, action in sorted(permissions - present):
@@ -571,10 +547,7 @@ def _ensure_rabbit_vhost(res: dict, env: dict[str, str], state: dict) -> str:
             permission = client.get(f"/api/permissions/{vhost}/{app_user}")
             return (
                 "VERIFIED"
-                if all(
-                    response.status_code == 200
-                    for response in (existing, user, permission)
-                )
+                if all(response.status_code == 200 for response in (existing, user, permission))
                 else "CONFLICT"
             )
         if existing.status_code == 200:
@@ -588,9 +561,7 @@ def _ensure_rabbit_vhost(res: dict, env: dict[str, str], state: dict) -> str:
         user = client.get(f"/api/users/{app_user}")
         if user.status_code != 200:
             password = secrets.token_urlsafe(24)
-            resp = client.put(
-                f"/api/users/{app_user}", json={"password": password, "tags": ""}
-            )
+            resp = client.put(f"/api/users/{app_user}", json={"password": password, "tags": ""})
             if resp.status_code not in (201, 204):
                 return "FAILED"
             path = Path(env["_ENV_DIR"]) / "secrets" / "rabbit-app.password"
@@ -651,9 +622,9 @@ def load_resources(path: Path) -> list[dict]:
             "nacos": "namespace",
             "rabbitmq": "vhost",
         }[resource["component"]]
-        if not isinstance(resource["name_binding"], dict) or set(
-            resource["name_binding"]
-        ) != {binding_key}:
+        if not isinstance(resource["name_binding"], dict) or set(resource["name_binding"]) != {
+            binding_key
+        }:
             raise ValueError("name_binding 与组件不一致")
         expected_roles = (
             {"owner", "migrator", "runtime"}
@@ -664,15 +635,11 @@ def load_resources(path: Path) -> list[dict]:
             raise ValueError("roles 与组件不一致")
         role_values = list(resource.get("roles", {}).values())
         if any(
-            not isinstance(value, str)
-            or not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", value)
+            not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", value)
             for value in role_values
         ) or len(set(role_values)) != len(role_values):
             raise ValueError("角色名称必须合法且相互独立")
-        if (
-            binding_key != "database"
-            and resource["name_binding"][binding_key] != "default"
-        ):
+        if binding_key != "database" and resource["name_binding"][binding_key] != "default":
             raise ValueError("namespace/vhost 仅使用项目与环境解析的 default 绑定")
         by_id[rid] = resource
     ordered, visiting, visited = [], set(), set()
@@ -698,9 +665,7 @@ def phase_resources(args: argparse.Namespace) -> int:
     env = load_env(Path(args.env_file))
     env["_ENV_DIR"] = str(Path(args.env_file).resolve().parent)
     resources_path = (
-        Path(args.resources)
-        if args.resources
-        else INPUT_ROOT / "infra" / "resources.yaml"
+        Path(args.resources) if args.resources else INPUT_ROOT / "infra" / "resources.yaml"
     )
     declarations = load_resources(resources_path)
 
@@ -732,13 +697,9 @@ def phase_resources(args: argparse.Namespace) -> int:
                             bootstrap=res["management"] == "create"
                             and env.get("NACOS_MODE", "self_hosted") == "self_hosted",
                         )
-                    result = _ensure_nacos_namespace(
-                        res, env, nacos_client, nacos_token, state
-                    )
+                    result = _ensure_nacos_namespace(res, env, nacos_client, nacos_token, state)
                     if result in ("CREATED", "VERIFIED"):
-                        identities = _ensure_nacos_identities(
-                            res, env, nacos_client, nacos_token
-                        )
+                        identities = _ensure_nacos_identities(res, env, nacos_client, nacos_token)
                         if identities != "VERIFIED":
                             result = identities
                 elif component == "rabbitmq":
@@ -762,15 +723,9 @@ def phase_resources(args: argparse.Namespace) -> int:
             state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
             print(f"[resources] {rid}: {result}")
 
-        state_path.write_text(
-            json.dumps(state_all, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        state_path.write_text(json.dumps(state_all, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    bad = [
-        rid
-        for rid, status in current_results.items()
-        if status in ("CONFLICT", "FAILED")
-    ]
+    bad = [rid for rid, status in current_results.items() if status in ("CONFLICT", "FAILED")]
     print(f"[resources] 完成;状态文件 {state_path}")
     return 1 if bad else 0
 
@@ -778,9 +733,7 @@ def phase_resources(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="环境初始化固定入口(设计 03)")
     parser.add_argument("--env-file", required=True)
-    parser.add_argument(
-        "--phase", required=True, choices=["prepare-local", "resources"]
-    )
+    parser.add_argument("--phase", required=True, choices=["prepare-local", "resources"])
     parser.add_argument("--resources", help="覆盖默认资源声明清单(测试用)")
     parser.add_argument("--redis-template", type=Path, help="prepare-local 使用的项目 Redis 模板")
     args = parser.parse_args()

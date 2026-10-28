@@ -54,7 +54,7 @@ public final class UserStatusService {
   }
 
   private Result changeStatusInternal(UUID target, Status requested, long expectedVersion) {
-    if (target == null || requested == null || expectedVersion < 0) {
+    if (requested == null) {
       throw new PlatformException("INVALID_ARGUMENT", "账号状态参数不合法", 400);
     }
     UUID actor = authorization.actorFor(OPERATION);

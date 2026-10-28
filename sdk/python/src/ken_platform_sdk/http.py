@@ -35,8 +35,6 @@ class ServiceHttpClient:
     ) -> T:
         """复用 raw 传输；DTO 必填/可空规则由业务的 Pydantic 模型声明。"""
         remaining = request_deadline(self.parameters.response_budget_seconds) - time.time()
-        if remaining <= 0:
-            raise DeadlineExceeded()
         started = time.monotonic()
         response = await self.request(service, method, path, json=json)
         if not response.is_success:

@@ -124,7 +124,7 @@ public final class RoleManagementService {
       UUID id, long expectedVersion, String name, Status status, String description) {
     String cleanName = validateName(name);
     String requestedDescription = description == null ? null : validateDescription(description);
-    if (id == null || expectedVersion < 0 || status == null) {
+    if (status == null) {
       throw invalid("角色属性参数不合法");
     }
     UUID actor = authorization.actorFor(OPERATION);
@@ -212,9 +212,6 @@ public final class RoleManagementService {
     validateCode(code);
     String cleanName = validateName(name);
     String requestedDescription = description == null ? null : validateDescription(description);
-    if (source == null || expectedVersion < 0 || expectedCatalogVersion < 0) {
-      throw invalid("复制角色参数不合法");
-    }
     UUID actor = authorization.actorFor(OPERATION);
     try {
       return transactions.execute(
@@ -297,7 +294,6 @@ public final class RoleManagementService {
         ManagementAudits.Action.ROLE_DELETE,
         id,
         () -> {
-          if (id == null || expectedVersion < 0) throw invalid("角色标识或版本不合法");
           UUID actor = authorization.actorFor(OPERATION);
           return transactions.execute(
               () -> {

@@ -47,10 +47,7 @@ public final class BffEndpoints {
   Mono<Void> loggedOut(ServerWebExchange exchange) {
     var namespace = BffNamespace.forPath(exchange.getRequest().getPath().value());
     exchange.getResponse().setStatusCode(org.springframework.http.HttpStatus.SEE_OTHER);
-    exchange
-        .getResponse()
-        .getHeaders()
-        .setLocation(java.net.URI.create(namespace == BffNamespace.WEB ? "/" : "/identity/admin/"));
+    exchange.getResponse().getHeaders().setLocation(namespace.landingPage());
     return exchange.getResponse().setComplete();
   }
 

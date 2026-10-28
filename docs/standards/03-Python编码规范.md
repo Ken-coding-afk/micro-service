@@ -1,6 +1,6 @@
 # Python 编码规范
 
-> 版本：1.0；基线：D-20261027-05；更新：2026-10-27。  
+> 版本：1.0；基线：D-20261028-02；更新：2026-10-28。  
 > 配合[共同规范](01-项目编码规范.md)与[开发指南](../guides/04-新项目开发与规范升级指南.md)使用。
 
 ## 1. 服务结构与依赖方向
@@ -25,7 +25,7 @@ FastAPI lifespan 管理 runtime、内省客户端、DB engine；同进程复用�
 
 async 中不调用阻塞 IO、同步 DB 或长 CPU/GPU 工作。需要同步执行时使用有界执行方式，取消 HTTP 不代表底层线程已经结束，不提前归还仍在工作的资源名额。不得吞掉 CancelledError 转成假成功。
 
-每个用例使用独立 DB session 和 tenant_transaction；用例负责事务，Repository 接收该 session，不自行 commit。tenant/owner 来自可信 principal，上下文由 SDK 设置/清理。远程调用在事务之外经 runtime.http 进行，不重复实现重试、池或熔断；Python SDK 未提供通用熔断器。
+每个用例使用独立 DB session 和 tenant_transaction；用例负责事务，Repository 接收该 session，不自行 commit。tenant/owner 来自可信 principal，上下文由 SDK 设置/清理。远程调用在事务之外经 runtime.http 进行，不重复实现重试、池或熔断；Python SDK 已提供 runtime.http 出站熔断，未提供任意业务函数熔断器。
 
 ## 4. 错误和可测试性
 
@@ -55,3 +55,7 @@ uv run --frozen ruff format src tests
 生产使用服务 uv.lock 在 Linux 构建阶段校验并冻结安装，SDK/业务非 editable；不要求手工 wheelhouse。dev 工具不进入生产环境。运维脚本采用项目根 .venv 和根 uv.lock；未修改的存量脚本不因本规范进行全量格式化。
 
 目录同步：2026-10-27，D-20261027-07，目录和工具路径按[总体架构](../design/01-总体架构与工程结构设计.md#framework-layout)；命名与编码行为不扩大。
+
+变更范围检查：从项目根运行 `uv run --frozen python scripts/check_python.py --paths <本次文件>`，或提供 `--base REF --head REF`。按所属 pyproject 执行 Ruff E4/E7/E9/F/I、py312 与格式检查，覆盖源码和测试；业务模块及 SDK 在各自环境执行 mypy。SDK 保持现有非 strict 强度，运维脚本不新增全量 mypy gate。修订：2026-10-28，D-20261028-02。
+
+修订：2026-10-28，D-20261028-02：落实整体整改的边界校验、共享机制与可执行检查，实际验证见整体整改计划。

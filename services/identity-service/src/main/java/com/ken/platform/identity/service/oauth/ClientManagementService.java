@@ -210,7 +210,6 @@ public final class ClientManagementService {
         ManagementAudits.Action.CLIENT_UPDATE,
         id,
         () -> {
-          if (id == null || expectedVersion < 0) throw ClientPolicyRules.invalid("客户端版本不合法");
           UUID actor = authorization.actorFor("platform:client:manage");
           var issued = new AtomicReference<OneTimeSecret>();
           try {
@@ -259,9 +258,6 @@ public final class ClientManagementService {
         ManagementAudits.Action.CLIENT_UPDATE,
         id,
         () -> {
-          if (id == null || expectedVersion < 0) {
-            throw ClientPolicyRules.invalid("客户端版本参数不合法");
-          }
           UUID actor = authorization.actorFor("platform:client:manage");
           var value = rules.validate(proposed);
           return transactions.execute(

@@ -247,7 +247,11 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> MigrationCo
     db_user = args.db_user or (resource or {}).get("migrator_role")
     owner_role = args.owner_role or (resource or {}).get("owner_role")
     env_dir = Path(args.env_file).resolve().parent if args.env_file else FRAMEWORK_ROOT / ".local"
-    password_file = args.password_file or env_dir / "secrets" / f"{args.target}-migrator.password"
+    password_file = (
+        args.password_file
+        or env.get("MIGRATOR_PASSWORD_FILE")
+        or env_dir / "secrets" / f"{args.target}-migrator.password"
+    )
     if not db_name:
         raise UsageError(
             f"无法从 {args.resources} 解析目标 {args.target} 的库名,请用 --db-name 显式指定"
@@ -256,11 +260,6 @@ def resolve_config(args: argparse.Namespace, env: dict[str, str]) -> MigrationCo
         raise UsageError(
             f"无法从 {args.resources} 解析目标 {args.target} 的 migrator 账号,请用 --db-user 显式指定"
         )
-    if not password_file:
-        raise UsageError(
-            "缺少 migrator 密码文件:请用 --password-file 或 env-file 的 MIGRATOR_PASSWORD_FILE 指定"
-        )
-
     migrations_dir = Path(args.migrations_dir).resolve() if args.migrations_dir else None
     if migrations_dir is None or not migrations_dir.is_dir():
         raise UsageError(f"迁移目录不存在或不是目录: {args.migrations_dir}")

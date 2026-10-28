@@ -7,7 +7,6 @@ import io.netty.channel.ChannelOption;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -33,15 +32,10 @@ public final class ServiceHttpClient implements AutoCloseable {
       byte[] body,
       CallContext context,
       org.springframework.core.ParameterizedTypeReference<T> responseType) {
-    Duration available = responseBudget;
-    if (context != null && context.deadline() != null) {
-      Duration inherited = Duration.between(clock.instant(), context.deadline());
-      if (inherited.compareTo(available) < 0) available = inherited;
-    }
-    if (available.isNegative() || available.isZero())
-      return CompletableFuture.failedFuture(timeout());
-    long deadline = System.nanoTime() + available.toNanos();
-    return Mono.fromFuture(() -> request(service, method, path, body, context))
+    var budget = new OutboundCallBudget(clock, responseBudget, context);
+    Duration available = budget.remaining();
+    if (available.isZero()) return CompletableFuture.failedFuture(timeout());
+    return Mono.fromFuture(() -> request(service, method, path, body, context, budget))
         .map(
             response -> {
               if (!response.getStatusCode().is2xxSuccessful()) {
@@ -75,7 +69,7 @@ public final class ServiceHttpClient implements AutoCloseable {
               } catch (RuntimeException invalid) {
                 throw new PlatformException("DEPENDENCY_INVALID_RESPONSE", "依赖响应不符合声明的类型", 502);
               }
-              if (System.nanoTime() >= deadline) throw timeout();
+              if (budget.remaining().isZero()) throw timeout();
               var headers = new org.springframework.http.HttpHeaders();
               headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
               String retryAfter = response.getHeaders().getFirst("Retry-After");
@@ -162,6 +156,22 @@ public final class ServiceHttpClient implements AutoCloseable {
 
   public CompletableFuture<ResponseEntity<byte[]>> request(
       String service, String method, String path, byte[] body, CallContext context) {
+    return request(
+        service,
+        method,
+        path,
+        body,
+        context,
+        new OutboundCallBudget(clock, responseBudget, context));
+  }
+
+  private CompletableFuture<ResponseEntity<byte[]>> request(
+      String service,
+      String method,
+      String path,
+      byte[] body,
+      CallContext context,
+      OutboundCallBudget budget) {
     URI relative = URI.create(path);
     if (!path.startsWith("/")
         || path.startsWith("//")
@@ -169,19 +179,9 @@ public final class ServiceHttpClient implements AutoCloseable {
         || relative.getRawAuthority() != null) {
       throw new IllegalArgumentException("只允许所属服务的绝对路径");
     }
-    Instant deadline = clock.instant().plus(responseBudget);
-    if (context != null && context.deadline() != null && context.deadline().isBefore(deadline)) {
-      deadline = context.deadline();
-    }
-    Duration available = Duration.between(clock.instant(), deadline);
-    long monotonicDeadline =
-        System.nanoTime()
-            + (available.isNegative() || available.isZero() ? 0 : available.toNanos());
-    Instant finalDeadline = deadline;
     return Mono.defer(
             () -> {
-              if (available.isNegative() || available.isZero())
-                return Mono.<ResponseEntity<byte[]>>error(timeout());
+              if (budget.remaining().isZero()) return Mono.<ResponseEntity<byte[]>>error(timeout());
               // 发现失败不进入 Sentinel，不污染依赖失败比例。
               ServiceInstance initial = discovery.choose(service);
               return Mono.using(
@@ -193,8 +193,7 @@ public final class ServiceHttpClient implements AutoCloseable {
                               path,
                               body == null ? new byte[0] : body,
                               context,
-                              finalDeadline,
-                              monotonicDeadline,
+                              budget,
                               0,
                               initial)
                           .doOnCancel(
@@ -227,19 +226,13 @@ public final class ServiceHttpClient implements AutoCloseable {
       String path,
       byte[] body,
       CallContext context,
-      Instant deadline,
-      long monotonicDeadline,
+      OutboundCallBudget budget,
       int retried,
       ServiceInstance first) {
     return Mono.defer(
         () -> {
-          Duration wallRemaining = Duration.between(clock.instant(), deadline);
-          Duration monotonicRemaining = Duration.ofNanos(monotonicDeadline - System.nanoTime());
-          Duration remaining =
-              wallRemaining.compareTo(monotonicRemaining) < 0 ? wallRemaining : monotonicRemaining;
-          if (remaining.isZero() || remaining.isNegative()) {
-            return Mono.error(timeout());
-          }
+          Duration remaining = budget.remaining();
+          if (remaining.isZero()) return Mono.error(timeout());
           ServiceInstance instance;
           try {
             instance = first == null ? discovery.choose(service) : first;
@@ -250,14 +243,10 @@ public final class ServiceHttpClient implements AutoCloseable {
               client
                   .method(HttpMethod.valueOf(method))
                   .uri(instance.origin().resolve(path))
-                  .header("X-Request-Deadline", Long.toString(deadline.toEpochMilli()));
+                  .headers(headers -> budget.writeHeaders(headers, context));
           if (context != null) {
-            builder.header("X-Request-Id", context.requestId());
             if (context.accessToken() != null) {
               builder.header("Authorization", "Bearer " + context.accessToken());
-            }
-            if (context.traceparent() != null) {
-              builder.header("traceparent", context.traceparent());
             }
           }
           WebClient.RequestHeadersSpec<?> operation =
@@ -295,18 +284,9 @@ public final class ServiceHttpClient implements AutoCloseable {
                     discovery.invalidate(service, instance);
                     if ("GET".equals(method)
                         && retried < getRetryExtra
-                        && clock.instant().isBefore(deadline)
-                        && !(failure instanceof java.util.concurrent.CancellationException)) {
+                        && !budget.remaining().isZero()) {
                       return attempt(
-                          service,
-                          method,
-                          path,
-                          body,
-                          context,
-                          deadline,
-                          monotonicDeadline,
-                          retried + 1,
-                          null);
+                          service, method, path, body, context, budget, retried + 1, null);
                     }
                     boolean timedOut = isTimeout(failure);
                     return Mono.error(

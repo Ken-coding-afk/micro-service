@@ -12,7 +12,12 @@ name: Source checks
     - '**/*.md'
     - .cursor/**
     - .codegraph/**
-  workflow_dispatch: null
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Python 检查的显式基线提交'
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -28,6 +33,7 @@ jobs:
       with:
         persist-credentials: false
         submodules: recursive
+        fetch-depth: 0
     - &id002
       uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
       with:
@@ -58,6 +64,16 @@ jobs:
                         raise SystemExit(f"{entry['module']}: 已声明测试不存在: {test}")
         print('服务与显式定向测试清单一致')
         PY
+    - name: Changed Python lint and format
+      env:
+        EVENT: ${{ github.event_name }}
+        BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
+        HEAD: ${{ github.sha }}
+      run: |
+        if [ "$EVENT" = "pull_request" ]; then
+          BASE=$(git merge-base "$BASE" "$HEAD")
+        fi
+        uv run --frozen python scripts/check_python.py --base "$BASE" --head "$HEAD"
   java:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -67,6 +83,7 @@ jobs:
       with:
         persist-credentials: false
         submodules: recursive
+        fetch-depth: 0
     - uses: actions/setup-java@816722acf8fd27c9d1e9ae6ee6085da07e0d44c1
       with:
         distribution: temurin
@@ -88,11 +105,11 @@ jobs:
       matrix:
         include:
         - module: sdk/java
-          tests: ApiErrorsTest,DeveloperContextTest,EnvironmentBindingTest,TypedServiceCallTest,ServiceCallContractTest,CurrentPrincipalTest,NativeComponentSettingsTest,PlatformMetricsAutoConfigurationTest
+          tests: OutboundCallBudgetTest,ApiErrorsTest,DeveloperContextTest,EnvironmentBindingTest,TypedServiceCallTest,ServiceCallContractTest,CurrentPrincipalTest,NativeComponentSettingsTest,PlatformMetricsAutoConfigurationTest
         - module: services/identity-service
-          tests: PasswordCredentialsTest,AuditDetailSanitizerTest,MonitoringScopeUpgradeTest,ManagementAuditsTest,BrowserContentSecurityPolicyTest,MonitoringMetricsBindingTest
+          tests: ManagementInputBoundaryTest,IdentityApiResponsesTest,PasswordCredentialsTest,AuditDetailSanitizerTest,MonitoringScopeUpgradeTest,ManagementAuditsTest,BrowserContentSecurityPolicyTest,MonitoringMetricsBindingTest
         - module: services/api-gateway
-          tests: BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest,GatewayTokenPreflightFilterTest
+          tests: BffRelayTest,BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest,GatewayTokenPreflightFilterTest
         - module: services/sample-java-service
           tests: ItemDeadlineTest,ItemControllerTest
   python:
@@ -107,9 +124,7 @@ jobs:
       run: |
         uv sync --frozen --all-extras --project "$MODULE"
         uv run --frozen --all-extras --project "$MODULE" ruff check "$MODULE/src"
-        if [ "$MODULE" = "sdk/python" ]; then
-          uv run --frozen --all-extras --project "$MODULE" mypy --config-file "$MODULE/pyproject.toml" "$MODULE/src"
-        fi
+        uv run --frozen --all-extras --project "$MODULE" mypy --config-file "$MODULE/pyproject.toml" "$MODULE/src"
         # TESTS来自本仓库可审查矩阵，每个路径无空格，不接受外部输入。
         uv run --frozen --all-extras --project "$MODULE" pytest -c "$MODULE/pyproject.toml" --confcutdir="$MODULE" $TESTS
     needs: scope
@@ -121,7 +136,7 @@ jobs:
           tests: sdk/python/tests/test_http.py sdk/python/tests/test_typed_http.py sdk/python/tests/test_circuit.py
             sdk/python/tests/test_config.py sdk/python/tests/test_context_web.py sdk/python/tests/test_observation.py
             sdk/python/tests/test_api_errors.py sdk/python/tests/test_developer_context.py sdk/python/tests/test_database_readiness.py
-            sdk/python/tests/test_access_logging.py
+            sdk/python/tests/test_access_logging.py sdk/python/tests/test_nacos_adapter.py sdk/python/tests/test_version.py
         - module: services/sample-python-service
           tests: services/sample-python-service/tests/test_items.py services/sample-python-service/tests/test_business_config.py
             services/sample-python-service/tests/test_application.py
@@ -149,4 +164,4 @@ jobs:
         python-version: '3.12'
     - run: |-
         uv sync --frozen
-        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_test_execution.py tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py tests/config/test_monitoring.py
+        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_test_execution.py tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py tests/config/test_monitoring.py tests/config/test_publish_state.py tests/deploy/test_migration_contract.py tests/project/test_python_check_scope.py tests/project/test_cli_failures.py

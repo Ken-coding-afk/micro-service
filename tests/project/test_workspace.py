@@ -263,32 +263,43 @@ def test_repeat_init_preserves_explicit_host(workspace, monkeypatch):
         prepare_environment(workspace, config, "192.168.1.202")
 
 
-@pytest.mark.parametrize("enabled,occupied,blocked", [
-    ("", 13200, False),  # Grafana 未启用。
-    ("", 5872, False),  # RabbitMQ 未启用。
-    ("", 48283, False),  # 未选的默认 Python 服务。
-    ("", 16579, False),  # external Redis 不占本机发布端口。
-    ("", 49501, True),  # 已选业务使用实际自定义端口，不再加 offset。
-    ("", 15632, True),  # 已选自建 PG。
-    ("COMPOSE_PROFILES=monitoring\n", 13200, True),
-    ("COMPOSE_PROFILES=monitoring\n", 50501, True),  # 实际业务指标端口。
-    ("RABBIT_HOST=127.0.0.1\n", 5872, True),
-])
+@pytest.mark.parametrize(
+    "enabled,occupied,blocked",
+    [
+        ("", 13200, False),  # Grafana 未启用。
+        ("", 5872, False),  # RabbitMQ 未启用。
+        ("", 48283, False),  # 未选的默认 Python 服务。
+        ("", 16579, False),  # external Redis 不占本机发布端口。
+        ("", 49501, True),  # 已选业务使用实际自定义端口，不再加 offset。
+        ("", 15632, True),  # 已选自建 PG。
+        ("COMPOSE_PROFILES=monitoring\n", 13200, True),
+        ("COMPOSE_PROFILES=monitoring\n", 50501, True),  # 实际业务指标端口。
+        ("RABBIT_HOST=127.0.0.1\n", 5872, True),
+    ],
+)
 def test_initialization_checks_only_enabled_components_and_selected_actual_ports(
     tmp_path, monkeypatch, enabled, occupied, blocked
 ):
     import init as local
 
-    write(tmp_path / "config/environments/local.env.example",
-          "PROJECT_CODE=fixture\nAPP_ENV=local\nPG_MODE=self_hosted\nREDIS_MODE=external\n"
-          "NACOS_MODE=external\nRABBIT_MODE=self_hosted\n" + enabled)
-    config = {"local": {"project": "fixture", "port_offset": 200},
-              "services": {"selected-service": {"port": 49501}}}
+    write(
+        tmp_path / "config/environments/local.env.example",
+        "PROJECT_CODE=fixture\nAPP_ENV=local\nPG_MODE=self_hosted\nREDIS_MODE=external\n"
+        "NACOS_MODE=external\nRABBIT_MODE=self_hosted\n" + enabled,
+    )
+    config = {
+        "local": {"project": "fixture", "port_offset": 200},
+        "services": {"selected-service": {"port": 49501}},
+    }
     checked = []
 
     class Probe:
-        def __enter__(self): return self
-        def __exit__(self, *args): pass
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
         def bind(self, address):
             checked.append(address[1])
             if address[1] == occupied:
@@ -307,6 +318,7 @@ def test_initialization_checks_only_enabled_components_and_selected_actual_ports
 
 def test_gateway_publication_survives_interruption_and_failed_restart(tmp_path, monkeypatch):
     import json
+
     import init as local
 
     # 已在 Nacos 发布，但初始化在迁移阶段失败；旧网关仍应用旧摘要。
@@ -317,8 +329,11 @@ def test_gateway_publication_survives_interruption_and_failed_restart(tmp_path, 
     write(tmp_path / ".local/publish-state.json", json.dumps(new))
     write(tmp_path / "config/nacos/api-gateway.yaml", "fixture: true")
     import catalog
+
     monkeypatch.setattr(catalog, "nacos_content", lambda root, path, selected: path.read_text())
-    monkeypatch.setattr(catalog, "nacos_files", lambda *args: [tmp_path / "config/nacos/api-gateway.yaml"])
+    monkeypatch.setattr(
+        catalog, "nacos_files", lambda *args: [tmp_path / "config/nacos/api-gateway.yaml"]
+    )
     monkeypatch.setattr(local, "tool", lambda *args: None)  # 重跑发布，远端摘要未再变化。
     snapshot = local.publish_nacos(tmp_path, {"selected": []}, tmp_path / ".local/environment.env")
     assert snapshot == new
@@ -343,7 +358,9 @@ def test_gateway_publication_survives_interruption_and_failed_restart(tmp_path, 
     assert calls[-1] == ("up", "-d", "--wait", "api-gateway", "nginx")
 
 
-def test_gateway_without_applied_record_restarts_once_and_rejects_missing_publication(tmp_path, monkeypatch):
+def test_gateway_without_applied_record_restarts_once_and_rejects_missing_publication(
+    tmp_path, monkeypatch
+):
     import init as local
 
     calls = []
@@ -538,43 +555,18 @@ def test_created_nacos_configuration_only_contains_selected_services(workspace):
 
 
 def test_initializer_passes_project_redis_template(workspace, monkeypatch):
+    events = initialization_boundaries(workspace, monkeypatch, False)
     import init as local
 
-    write(workspace / ".local/environment.env", "APP_ENV=local\n")
-
-    class StopBeforeInfrastructure(Exception):
-        pass
-
-    calls = []
-    monkeypatch.setattr(
-        local, "prepare_environment", lambda *a: (workspace / ".local/environment.env", "127.0.0.1")
+    local.initialize(
+        workspace, argparse.Namespace(dev_host="127.0.0.1", services="inspection-service")
     )
-    monkeypatch.setattr(local, "run", lambda *a, **k: None)
-    monkeypatch.setattr(local, "base_images", lambda *a: {})
-    monkeypatch.setattr(local, "env_values", lambda *a: {})
-    monkeypatch.setattr(local, "build_service", lambda *a, **k: "sha256:" + "a" * 64)
-
-    def stop(root, path, *args):
-        calls.append((root, path, args))
-        raise StopBeforeInfrastructure
-
-    monkeypatch.setattr(local, "tool", stop)
-    with pytest.raises(StopBeforeInfrastructure):
-        local.initialize(workspace, argparse.Namespace(dev_host=None))
-    assert calls == [
-        (
-            workspace,
-            "scripts/infra/init.py",
-            (
-                "--env-file",
-                workspace / ".local/environment.env",
-                "--phase",
-                "prepare-local",
-                "--redis-template",
-                workspace / "infra/redis/redis.conf",
-            ),
-        )
-    ]
+    prepare = next(event for event in events if "prepare-local" in event)
+    assert (
+        prepare[prepare.index("--redis-template") + 1]
+        == (workspace / "infra/redis/redis.conf").as_posix()
+    )
+    assert (workspace / ".local/runtime/inspection-service.env").is_file()
 
 
 def test_maven_wrapper_is_published_as_executable():
@@ -589,74 +581,100 @@ def test_maven_wrapper_is_published_as_executable():
     assert b"\r\n" not in (FRAMEWORK / "mvnw").read_bytes()
 
 
+def initialization_boundaries(workspace, monkeypatch, monitoring):
+    import json
+    import subprocess
+
+    import build
+    import compose
+    import httpx
+    import init as local
+
+    events = []
+    runtime = workspace / ".local/runtime"
+    env = local.env_values(workspace / "config/environments/local.env.example")
+    env.update(
+        APP_ENV="local",
+        PROJECT_CODE="equipment-platform",
+        PG_MODE="external",
+        PUBLIC_ORIGIN="http://localhost:18280",
+        IDENTITY_ADMIN_PORT="18281",
+        COMPOSE_PROFILES="monitoring" if monitoring else "",
+        NACOS_RUNTIME_PASSWORD="fixture",
+    )
+    write(
+        workspace / ".local/environment.env",
+        "".join(f"{key}={value}\n" for key, value in env.items()),
+    )
+    local.generated(workspace, runtime / "compose.env", "IDENTITY_ADMIN_PORT=18281\n")
+    for name in ("identity-service", "api-gateway"):
+        local.generated(workspace, runtime / f"{name}.env", "APP_ENV=local\n")
+    local.generated(workspace, runtime / "api-gateway-secrets/bff.json", "{}")
+    write(workspace / ".local/secrets/inspection-service-db-runtime.password", "fixture")
+
+    def run(command, **kwargs):
+        command = tuple(str(value).replace("\\", "/") for value in command)
+        events.append(command)
+        if any(
+            value.endswith("scripts/config/publish.py")
+            or value.endswith("scripts\\config\\publish.py")
+            for value in command
+        ):
+            write(
+                workspace / ".local/publish-state.json", '{"fixture/api-gateway.yaml": "published"}'
+            )
+
+    for module in (local, build, compose):
+        monkeypatch.setattr(module, "run", run)
+    inspections = []
+
+    def output(command, **kwargs):
+        if command[:3] == ["docker", "image", "inspect"]:
+            return "sha256:" + "a" * 64
+        if command[0:2] == ["docker", "compose"]:
+            return "fixture-gateway"
+        if command[:2] == ["docker", "inspect"]:
+            inspections.append(1)
+            events.append(("proxy-sync",))
+            return json.dumps(
+                {"equipment-platform-local-net": {"IPAddress": f"172.28.0.{len(inspections) + 2}"}}
+            )
+        raise AssertionError(command)
+
+    monkeypatch.setattr(subprocess, "check_output", output)
+    client_type = httpx.Client
+
+    def respond(request):
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "fixture-token"})
+        if request.url.path.endswith("/version"):
+            return httpx.Response(200, json={"data": {"catalog_version": 1}})
+        assert request.url.path.endswith("permission-catalogs:sync")
+        events.append(("permissions",))
+        return httpx.Response(200, json={"data": {}})
+
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    return events
+
+
 @pytest.mark.parametrize("monitoring", [False, True])
 def test_initialization_orders_config_identity_catalog_then_business_migration(
     workspace, monkeypatch, monitoring
 ):
-    from types import SimpleNamespace
-
     import init as local
 
-    events = []
-    env_path = workspace / ".local/environment.env"
-    runtime = workspace / ".local/runtime"
-    local.generated(workspace, runtime / "compose.env", "fixture")
-    env = {
-        "APP_ENV": "local",
-        "PROJECT_CODE": "equipment-platform",
-        "PG_MODE": "external",
-        "PUBLIC_ORIGIN": "http://localhost:18280",
-        "IDENTITY_ADMIN_PORT": "18281",
-        "COMPOSE_PROFILES": "monitoring" if monitoring else "",
-    }
-    write(env_path, "".join(f"{key}={value}\n" for key, value in env.items()))
-    monkeypatch.setattr(local, "prepare_environment", lambda *a: (env_path, "127.0.0.1"))
-    monkeypatch.setattr(local, "env_values", lambda *a: dict(env))
-    monkeypatch.setattr(local, "run", lambda *a, **k: None)
-    monkeypatch.setattr(
-        local, "base_images", lambda *a: {"identity-service": "identity", "api-gateway": "gateway"}
-    )
-    monkeypatch.setattr(local, "build_service", lambda *a, **k: "sha256:" + "a" * 64)
-    def tool(root, name, *args):
-        events.append((name, *map(str, args)))
-        if name == "scripts/config/publish.py":
-            write(root / ".local/publish-state.json", '{"fixture/api-gateway.yaml": "published"}')
-
-    monkeypatch.setattr(local, "tool", tool)
-    monkeypatch.setattr(
-        local,
-        "migrate",
-        lambda root, env, resources, target, *args, **kw: events.append(("migrate", target)),
-    )
-    monkeypatch.setattr(local, "compose", lambda root, *args: events.append(("compose", *args)))
-
-    def bind(root, config, *args):
-        for name in config["services"]:
-            write(runtime / f"identity-bootstrap-secrets/{name}.password", "fixture")
-
-    monkeypatch.setattr(local, "bind_business", bind)
-    original = local.load_tool
-
-    def load(name):
-        if name.endswith("sync_permissions.py"):
-            return SimpleNamespace(publish=lambda *args: events.append(("permissions",)))
-        module = original(name)
-        if monitoring and name.endswith("prepare_local.py"):
-
-            def changed(*args):
-                events.append(("proxy-sync",))
-                return True
-
-            module.sync_local_monitoring_proxy = changed
-        return module
-
-    monkeypatch.setattr(local, "load_tool", load)
+    events = initialization_boundaries(workspace, monkeypatch, monitoring)
     local.initialize(
-        workspace, argparse.Namespace(dev_host=None, services="inspection-service", with_demo=False)
+        workspace,
+        argparse.Namespace(dev_host="127.0.0.1", services="inspection-service", with_demo=False),
     )
 
     def index(text):
-        return next(i for i, event in enumerate(events) if text in event)
+        return next(i for i, event in enumerate(events) if any(text in part for part in event))
 
     assert index("scripts/config/publish.py") < index("identity-db")
     assert index("identity-db") < index("bootstrap-services-technical") < index("permissions")
@@ -668,11 +686,15 @@ def test_initialization_orders_config_identity_catalog_then_business_migration(
     assert not any("equipment-service-db" in event for event in events)
     assert not any("bootstrap-local" in event for event in events)
     assert any("http://127.0.0.1:18281/readyz" in event for event in events)
+    assert (workspace / ".local/runtime/inspection-service-host.env").is_file()
+    assert not (workspace / ".local/runtime/equipment-service-host.env").exists()
+    provisioning = read_yaml(workspace / ".local/runtime/identity-bootstrap-secrets/services.json")
+    assert [entry["name"] for entry in provisioning["services"]] == ["inspection-service"]
     if monitoring:
         syncs = [i for i, event in enumerate(events) if event == ("proxy-sync",)]
-        gateway = events.index(("compose", "up", "-d", "--wait", "api-gateway", "nginx"))
-        grafana = next(i for i, event in enumerate(events) if "grafana" in event)
-        assert len(syncs) == 2 and syncs[0] < gateway < syncs[1] < grafana
+        assert len(syncs) == 2 and syncs[0] < index("--force-recreate") < syncs[1] < index(
+            "grafana"
+        )
 
 
 def test_partial_build_reuses_core_and_rejects_changed_core_inputs(

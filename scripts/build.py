@@ -12,7 +12,6 @@ from pathlib import Path
 
 from common import (
     FRAMEWORK,
-    IGNORED,
     load_tool,
     read_yaml,
     run,
@@ -107,10 +106,8 @@ def source_identity(root: Path, strict: bool = False, requested: str = "all") ->
 def copy_inputs(source: Path, target: Path, *, runtime: bool = False) -> None:
     for path in source_files(source):
         relative = path.relative_to(source)
-        if IGNORED.intersection(relative.parts) or not path.is_file():
+        if not path.is_file():
             continue
-        if path.is_symlink() or not path.resolve().is_relative_to(source.resolve()):
-            raise ValueError("构建输入不能通过符号链接越过源目录")
         if path.name.endswith((".password", ".key", ".pem", ".env")):
             raise ValueError(f"源目录含运行秘密文件：{relative}")
         if runtime and ("tests" in relative.parts or path.suffix == ".pyc"):

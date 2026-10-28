@@ -3,6 +3,7 @@ package com.ken.platform.identity.service.login;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.identity.dal.dataobject.login.LoginRealm;
 import com.ken.platform.identity.dal.mapper.login.LoginStore;
+import com.ken.platform.identity.dal.support.IdentityTenantScope;
 import com.ken.platform.identity.service.oauth.ProtocolAuthorizations;
 import com.ken.platform.identity.service.security.SecurityPolicies;
 import java.time.Clock;
@@ -22,6 +23,7 @@ public final class ExternalIdentities {
   private final Clock clock;
   private final LoginProtection protection;
   private final TransactionTemplate tx;
+  private final IdentityTenantScope tenantScope;
 
   public ExternalIdentities(
       JdbcTemplate jdbc,
@@ -39,6 +41,7 @@ public final class ExternalIdentities {
     this.policies = policies;
     this.authorizations = authorizations;
     this.clock = clock;
+    tenantScope = new IdentityTenantScope(jdbc, manager);
     tx = new TransactionTemplate(manager);
     tx.setTimeout(10);
   }
@@ -67,12 +70,14 @@ public final class ExternalIdentities {
     if (owner.realm() != LoginRealm.TENANT) throw rejected();
     return tx.execute(
         status -> {
-          scope(owner.tenant());
-          return jdbc.queryForList(
-              "SELECT provider_registration_id FROM sys_external_identity WHERE tenant_id=? AND user_id=? ORDER BY provider_registration_id",
-              String.class,
+          return tenantScope.within(
               owner.tenant(),
-              owner.user());
+              () ->
+                  jdbc.queryForList(
+                      "SELECT provider_registration_id FROM sys_external_identity WHERE tenant_id=? AND user_id=? ORDER BY provider_registration_id",
+                      String.class,
+                      owner.tenant(),
+                      owner.user()));
         });
   }
 
@@ -83,68 +88,72 @@ public final class ExternalIdentities {
         status -> {
           store.lockCatalog();
           var active = active(tenant);
-          scope(tenant);
-          if (bindingSession != null) {
-            var owner = recent(bindingSession, tenant);
-            // 唯一约束同时阻止一个外部身份占用多个账号、一个账号隐式覆盖已有绑定。
-            var existing =
-                jdbc.queryForList(
-                    "SELECT user_id,provider_authority FROM sys_external_identity WHERE tenant_id=? AND provider_registration_id=? AND provider_subject=?",
-                    tenant,
-                    provider,
-                    subject);
-            if (existing.isEmpty()) {
-              jdbc.update(
-                  "INSERT INTO sys_external_identity(tenant_id,user_id,provider_registration_id,provider_authority,provider_subject) VALUES(?,?,?,?,?)",
-                  tenant,
-                  owner.user(),
-                  provider,
-                  authority,
-                  subject);
-            } else if (!owner.user().equals(existing.getFirst().get("user_id"))
-                || !authority.equals(existing.getFirst().get("provider_authority")))
-              throw rejected();
-            store.audit(
-                store.session(bindingSession, false),
-                "identity.external.bound",
-                UUID.randomUUID().toString());
-            // 绑定完成重新登录，避免迁移旧 Cookie 后留下失配的 PG/Redis 绑定。
-            store.revoke(bindingSession, clock.instant());
-            authorizations.revokeForSession(bindingSession);
-            return null;
-          }
-          var ids =
-              jdbc.queryForList(
-                  "SELECT user_id FROM sys_external_identity WHERE tenant_id=? AND provider_registration_id=? AND provider_authority=? AND provider_subject=?",
-                  UUID.class,
-                  tenant,
-                  provider,
-                  authority,
-                  subject);
-          if (ids.isEmpty())
-            throw new PlatformException("EXTERNAL_IDENTITY_NOT_BOUND", "请先登录本租户账号完成显式绑定", 401);
-          var account = store.credential(LoginRealm.TENANT, tenant, null, ids.getFirst());
-          if (account == null || !account.status().equals("ACTIVE") || account.mustChange())
-            throw rejected();
-          policies.current(tenant);
-          var now = clock.instant();
-          var session =
-              new LoginStore.Session(
-                  UUID.randomUUID(),
-                  LoginRealm.TENANT,
-                  tenant,
-                  account.id(),
-                  account.authVersion(),
-                  active.authVersion(),
-                  false,
-                  now,
-                  now,
-                  null,
-                  null,
-                  false);
-          store.createSession(session);
-          store.audit(session, "identity.external.login", UUID.randomUUID().toString());
-          return identity(session);
+          return tenantScope.within(
+              tenant,
+              () -> {
+                if (bindingSession != null) {
+                  var owner = recent(bindingSession, tenant);
+                  // 唯一约束同时阻止一个外部身份占用多个账号、一个账号隐式覆盖已有绑定。
+                  var existing =
+                      jdbc.queryForList(
+                          "SELECT user_id,provider_authority FROM sys_external_identity WHERE tenant_id=? AND provider_registration_id=? AND provider_subject=?",
+                          tenant,
+                          provider,
+                          subject);
+                  if (existing.isEmpty()) {
+                    jdbc.update(
+                        "INSERT INTO sys_external_identity(tenant_id,user_id,provider_registration_id,provider_authority,provider_subject) VALUES(?,?,?,?,?)",
+                        tenant,
+                        owner.user(),
+                        provider,
+                        authority,
+                        subject);
+                  } else if (!owner.user().equals(existing.getFirst().get("user_id"))
+                      || !authority.equals(existing.getFirst().get("provider_authority")))
+                    throw rejected();
+                  store.audit(
+                      store.session(bindingSession, false),
+                      "identity.external.bound",
+                      UUID.randomUUID().toString());
+                  // 绑定完成重新登录，避免迁移旧 Cookie 后留下失配的 PG/Redis 绑定。
+                  store.revoke(bindingSession, clock.instant());
+                  authorizations.revokeForSession(bindingSession);
+                  return null;
+                }
+                var ids =
+                    jdbc.queryForList(
+                        "SELECT user_id FROM sys_external_identity WHERE tenant_id=? AND provider_registration_id=? AND provider_authority=? AND provider_subject=?",
+                        UUID.class,
+                        tenant,
+                        provider,
+                        authority,
+                        subject);
+                if (ids.isEmpty())
+                  throw new PlatformException(
+                      "EXTERNAL_IDENTITY_NOT_BOUND", "请先登录本租户账号完成显式绑定", 401);
+                var account = store.credential(LoginRealm.TENANT, tenant, null, ids.getFirst());
+                if (account == null || !account.status().equals("ACTIVE") || account.mustChange())
+                  throw rejected();
+                policies.current(tenant);
+                var now = clock.instant();
+                var session =
+                    new LoginStore.Session(
+                        UUID.randomUUID(),
+                        LoginRealm.TENANT,
+                        tenant,
+                        account.id(),
+                        account.authVersion(),
+                        active.authVersion(),
+                        false,
+                        now,
+                        now,
+                        null,
+                        null,
+                        false);
+                store.createSession(session);
+                store.audit(session, "identity.external.login", UUID.randomUUID().toString());
+                return identity(session);
+              });
         });
   }
 
@@ -153,19 +162,25 @@ public final class ExternalIdentities {
     tx.executeWithoutResult(
         status -> {
           recent(owner.sessionId(), owner.tenant());
-          scope(owner.tenant());
-          // 所有可绑定账号已完成本地密码初始化，因此解绑仍保留有效本地登录方式。
-          var account = store.credential(LoginRealm.TENANT, owner.tenant(), null, owner.user());
-          if (account == null || account.hash() == null || account.mustChange()) throw rejected();
-          jdbc.update(
-              "DELETE FROM sys_external_identity WHERE tenant_id=? AND user_id=? AND provider_registration_id=?",
+          tenantScope.within(
               owner.tenant(),
-              owner.user(),
-              provider);
-          store.audit(
-              store.session(owner.sessionId(), false),
-              "identity.external.unbound",
-              UUID.randomUUID().toString());
+              () -> {
+                // 所有可绑定账号已完成本地密码初始化，因此解绑仍保留有效本地登录方式。
+                var account =
+                    store.credential(LoginRealm.TENANT, owner.tenant(), null, owner.user());
+                if (account == null || account.hash() == null || account.mustChange())
+                  throw rejected();
+                jdbc.update(
+                    "DELETE FROM sys_external_identity WHERE tenant_id=? AND user_id=? AND provider_registration_id=?",
+                    owner.tenant(),
+                    owner.user(),
+                    provider);
+                store.audit(
+                    store.session(owner.sessionId(), false),
+                    "identity.external.unbound",
+                    UUID.randomUUID().toString());
+                return null;
+              });
         });
   }
 
@@ -190,11 +205,6 @@ public final class ExternalIdentities {
         || value.expiresAt() != null && !clock.instant().isBefore(value.expiresAt()))
       throw rejected();
     return value;
-  }
-
-  private void scope(UUID tenant) {
-    jdbc.queryForObject(
-        "SELECT set_config('app.tenant_id',?,true)", String.class, tenant.toString());
   }
 
   private static PasswordLoginService.Identity identity(LoginStore.Session s) {

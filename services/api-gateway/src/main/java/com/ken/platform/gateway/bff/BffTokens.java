@@ -211,11 +211,14 @@ public final class BffTokens {
     return locks.execute(RELEASE, List.of(key), List.of(owner)).then();
   }
 
+  static boolean credentialError(String code) {
+    return Set.of("invalid_grant", "invalid_client", "invalid_scope").contains(code);
+  }
+
   private static Throwable classify(Throwable failure) {
     if (failure instanceof PlatformException) return failure;
     if (failure instanceof OAuth2AuthorizationException oauth
-        && Set.of("invalid_grant", "invalid_client", "invalid_scope")
-            .contains(oauth.getError().getErrorCode())) return invalid();
+        && credentialError(oauth.getError().getErrorCode())) return invalid();
     return new PlatformException("BFF_IDENTITY_UNAVAILABLE", "身份或会话存储暂不可用，请重新登录", 503);
   }
 

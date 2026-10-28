@@ -22,6 +22,10 @@ public enum BffNamespace {
     return clientId;
   }
 
+  public java.net.URI landingPage() {
+    return java.net.URI.create(this == WEB ? "/" : "/identity/admin/");
+  }
+
   public static BffNamespace forPath(String path) {
     for (var namespace : values()) {
       if (path.equals(namespace.path) || path.startsWith(namespace.path + "/")) return namespace;

@@ -53,7 +53,7 @@ public final class PlatformLifecycleService {
         ManagementAudits.Action.ADMINISTRATOR_UPDATE,
         target,
         () -> {
-          valid(target, expectedVersion, requested);
+          valid(requested);
           String name = AccountFields.displayName(displayName);
           UUID actor = authorization.actorFor("platform:admin:manage");
           return transactions.execute(
@@ -127,7 +127,7 @@ public final class PlatformLifecycleService {
         ManagementAudits.Action.TENANT_UPDATE,
         target,
         () -> {
-          valid(target, expectedVersion, requested);
+          valid(requested);
           String name = AccountFields.displayName(displayName);
           UUID actor = authorization.actorFor("platform:tenant:manage");
           Instant expiry =
@@ -185,8 +185,8 @@ public final class PlatformLifecycleService {
         });
   }
 
-  private static void valid(UUID target, long expectedVersion, Status status) {
-    if (target == null || expectedVersion < 0 || status == null) {
+  private static void valid(Status status) {
+    if (status == null) {
       throw new PlatformException("INVALID_ARGUMENT", "管理参数不合法", 400);
     }
   }

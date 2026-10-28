@@ -28,9 +28,17 @@ public final class BffRelay implements GlobalFilter, Ordered {
       return chain.filter(exchange);
     var namespace = BffNamespace.forPath(exchange.getRequest().getPath().value());
     if (namespace == null || !namespace.name().equals(selected)) return Mono.error(invalid());
+    return Mono.defer(
+        () -> {
+          checkRoute(exchange, namespace);
+          return relay(exchange, chain, route);
+        });
+  }
+
+  private static void checkRoute(ServerWebExchange exchange, BffNamespace namespace) {
     if (namespace != BffNamespace.WEB) {
       String prefix = namespace.path() + "/api/", path = exchange.getRequest().getPath().value();
-      if (!path.startsWith(prefix)) return Mono.error(invalid());
+      if (!path.startsWith(prefix)) throw invalid();
       String resource = path.substring(prefix.length());
       boolean platformResource = resource.equals("platform") || resource.startsWith("platform/");
       if (namespace == BffNamespace.TENANT && platformResource
@@ -38,8 +46,11 @@ public final class BffRelay implements GlobalFilter, Ordered {
               && !platformResource
               && !resource.equals("me")
               && !resource.startsWith("me/"))
-        return Mono.error(new PlatformException("FORBIDDEN", "当前管理入口不允许访问该对象", 403));
+        throw new PlatformException("FORBIDDEN", "当前管理入口不允许访问该对象", 403);
     }
+  }
+
+  private Mono<Void> relay(ServerWebExchange exchange, GatewayFilterChain chain, Route route) {
     return exchange
         .getPrincipal()
         .ofType(OAuth2AuthenticationToken.class)
@@ -56,73 +67,8 @@ public final class BffRelay implements GlobalFilter, Ordered {
                                     client.getClientRegistration())
                                 .flatMap(
                                     current -> {
-                                      if (!current.subject().equals(authentication.getName())
-                                          || !current
-                                              .type()
-                                              .equals(
-                                                  authentication
-                                                      .getPrincipal()
-                                                      .getAttribute("principal_type"))
-                                          || !java.util.Objects.equals(
-                                              current.tenant() == null
-                                                  ? null
-                                                  : current.tenant().toString(),
-                                              authentication
-                                                  .getPrincipal()
-                                                  .getAttribute("tenant_id")))
-                                        return Mono.error(invalid());
-                                      if (!current
-                                          .audiences()
-                                          .contains(route.getMetadata().get("bff.audience")))
-                                        return Mono.error(
-                                            new PlatformException(
-                                                "FORBIDDEN", "当前应用未获准访问目标资源", 403));
-                                      return Mono.deferContextual(
-                                          context -> {
-                                            CallContext parent =
-                                                context.getOrDefault(CallContext.class, null);
-                                            if (parent == null)
-                                              return Mono.error(
-                                                  new IllegalStateException("缺少 BFF 请求上下文"));
-                                            exchange
-                                                .getAttributes()
-                                                .put(
-                                                    com.ken.platform.gateway.traffic.RateSubject
-                                                        .ATTRIBUTE,
-                                                    new com.ken.platform.gateway.traffic
-                                                        .RateSubject(
-                                                        current.type(),
-                                                        current.tenant() == null
-                                                            ? null
-                                                            : current.tenant().toString(),
-                                                        current.subject(),
-                                                        client
-                                                            .getClientRegistration()
-                                                            .getClientId()));
-                                            String token = client.getAccessToken().getTokenValue();
-                                            var call =
-                                                new CallContext(
-                                                    parent.requestId(),
-                                                    current.tenant(),
-                                                    current.subject(),
-                                                    token,
-                                                    parent.traceparent(),
-                                                    parent.deadline());
-                                            var request =
-                                                exchange
-                                                    .getRequest()
-                                                    .mutate()
-                                                    .headers(
-                                                        headers -> {
-                                                          headers.remove("Cookie");
-                                                          headers.setBearerAuth(token);
-                                                        })
-                                                    .build();
-                                            return chain
-                                                .filter(exchange.mutate().request(request).build())
-                                                .contextWrite(
-                                                    values -> values.put(CallContext.class, call));
-                                          });
+                                      checkIdentity(current, authentication, route);
+                                      return forward(exchange, chain, current, client);
                                     })))
         .onErrorResume(
             PlatformException.class,
@@ -133,6 +79,60 @@ public final class BffRelay implements GlobalFilter, Ordered {
                         .flatMap(org.springframework.web.server.WebSession::invalidate)
                         .then(Mono.error(error))
                     : Mono.error(error));
+  }
+
+  private static void checkIdentity(
+      BffIdentityClient.Identity current, OAuth2AuthenticationToken authentication, Route route) {
+    if (!current.subject().equals(authentication.getName())
+        || !current.type().equals(authentication.getPrincipal().getAttribute("principal_type"))
+        || !java.util.Objects.equals(
+            current.tenant() == null ? null : current.tenant().toString(),
+            authentication.getPrincipal().getAttribute("tenant_id"))) throw invalid();
+    if (!current.audiences().contains(route.getMetadata().get("bff.audience")))
+      throw new PlatformException("FORBIDDEN", "当前应用未获准访问目标资源", 403);
+  }
+
+  private static Mono<Void> forward(
+      ServerWebExchange exchange,
+      GatewayFilterChain chain,
+      BffIdentityClient.Identity current,
+      org.springframework.security.oauth2.client.OAuth2AuthorizedClient client) {
+    return Mono.deferContextual(
+        context -> {
+          CallContext parent = context.getOrDefault(CallContext.class, null);
+          if (parent == null) return Mono.error(new IllegalStateException("缺少 BFF 请求上下文"));
+          exchange
+              .getAttributes()
+              .put(
+                  com.ken.platform.gateway.traffic.RateSubject.ATTRIBUTE,
+                  new com.ken.platform.gateway.traffic.RateSubject(
+                      current.type(),
+                      current.tenant() == null ? null : current.tenant().toString(),
+                      current.subject(),
+                      client.getClientRegistration().getClientId()));
+          String token = client.getAccessToken().getTokenValue();
+          var call =
+              new CallContext(
+                  parent.requestId(),
+                  current.tenant(),
+                  current.subject(),
+                  token,
+                  parent.traceparent(),
+                  parent.deadline());
+          var request =
+              exchange
+                  .getRequest()
+                  .mutate()
+                  .headers(
+                      headers -> {
+                        headers.remove("Cookie");
+                        headers.setBearerAuth(token);
+                      })
+                  .build();
+          return chain
+              .filter(exchange.mutate().request(request).build())
+              .contextWrite(values -> values.put(CallContext.class, call));
+        });
   }
 
   @Override

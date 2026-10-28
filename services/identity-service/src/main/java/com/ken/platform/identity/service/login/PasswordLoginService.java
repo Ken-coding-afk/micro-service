@@ -436,7 +436,6 @@ public final class PasswordLoginService {
         "identity.own-profile.updated",
         true,
         checked -> {
-          if (expectedVersion < 0) throw new PlatformException("INVALID_ARGUMENT", "账号版本不合法", 400);
           String name = AccountFields.displayName(displayName);
           var owner = checked.session();
           var previous = profile(owner);

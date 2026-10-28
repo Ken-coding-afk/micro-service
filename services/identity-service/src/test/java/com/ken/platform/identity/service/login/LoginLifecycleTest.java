@@ -138,7 +138,9 @@ class LoginLifecycleTest {
         username,
         materialP.hash());
     redis = new LoginRedisFixture();
-    store = new LoginStore(jdbc);
+    store =
+        new LoginStore(
+            jdbc, new com.ken.platform.identity.dal.support.IdentityTenantScope(jdbc, manager));
     service = service(store, redis.protection);
   }
 

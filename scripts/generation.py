@@ -6,7 +6,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-from common import FRAMEWORK, IGNORED, read_yaml, source_files, write, write_yaml
+from common import FRAMEWORK, read_yaml, source_files, write, write_yaml
 from registration import register, replace, replacements, validate_name, validate_package
 
 
@@ -134,7 +134,7 @@ def service_files(root: Path, language: str, name: str, package: str, peer: str 
     values = replacements(language, name, package, peer)
     for path in source_files(source):
         relative = path.relative_to(source)
-        if not path.is_file() or IGNORED.intersection(relative.parts):
+        if not path.is_file():
             continue
         if path.name in {"uv.lock", "uv.toml", "requirements.lock", "Dockerfile"}:
             continue
@@ -168,9 +168,7 @@ def copy_source(source: Path, target: Path) -> None:
     elif source.is_dir():
         for path in source_files(source):
             relative = path.relative_to(source)
-            if path.is_file() and not IGNORED.intersection(relative.parts):
-                if path.is_symlink() or not path.resolve().is_relative_to(source.resolve()):
-                    raise ValueError("源码导出不接受符号链接")
+            if path.is_file():
                 copy_source(path, target / relative)
     else:
         raise ValueError("快照缺少交付文件：" + str(source))
@@ -211,6 +209,7 @@ def generate(args: argparse.Namespace) -> None:
         "add_service.py",
         "build.py",
         "catalog.py",
+        "check_python.py",
         "common.py",
         "compose.py",
         "dev.py",
@@ -354,9 +353,18 @@ def generate(args: argparse.Namespace) -> None:
     for path in (root / "docs/standards").glob("*.md"):
         lines = path.read_text(encoding="utf-8").splitlines()
         write(path, "\n".join(line for line in lines if not line.startswith("目录同步：")) + "\n")
-    rules = "文档使用中文；遵循 docs/standards。业务在 services；公共源码在 sdk。变更先明确范围与验证，仅运行受影响测试。秘密不入库。后续业务使用固定 submodule，先提交子仓再提交主仓 gitlink。\n"
-    for name in ("AGENTS.md", "CLAUDE.md", ".cursor/rules/project.mdc"):
-        write(root / name, rules)
+    rules = """# AGENTS.md
+
+默认中文沟通；保留现有修改，先明确范围与验证，仅运行受影响测试，秘密不入库。
+写代码前必读[共同规范](docs/standards/01-项目编码规范.md)，按语言读取
+[Java 规范](docs/standards/02-Java编码规范.md)和[Python 规范](docs/standards/03-Python编码规范.md)。
+业务在 services，公共源码在 sdk；后续业务使用固定 submodule，先提交子仓再提交主仓 gitlink。
+Java 使用 JDK 21；在项目根对受影响模块运行 `./mvnw -pl <module> -am spotless:check` 和定向测试。
+Python 使用各模块自己的 uv 环境；从根执行 `uv run --frozen python scripts/check_python.py --paths <files>`，
+在受影响模块执行 `uv run --frozen mypy src` 和定向 pytest。不得把格式检查当作权限或事务验收。
+交付说明所读规范、实际验证命令、结果和未验证项。
+"""
+    write(root / "AGENTS.md", rules)
     from catalog import project_config
     from ide import install
 

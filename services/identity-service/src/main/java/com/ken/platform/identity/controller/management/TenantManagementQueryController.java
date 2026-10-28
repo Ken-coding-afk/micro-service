@@ -1,5 +1,6 @@
 package com.ken.platform.identity.controller.management;
 
+import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.authorization.TenantManagementQueryService;
 import java.util.Map;
 import java.util.UUID;

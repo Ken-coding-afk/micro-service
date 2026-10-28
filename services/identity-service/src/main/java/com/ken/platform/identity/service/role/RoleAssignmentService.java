@@ -66,8 +66,7 @@ public final class RoleAssignmentService {
 
   private Result replaceInternal(
       UUID target, long expectedUserVersion, List<RoleReference> requested) {
-    if (target == null || expectedUserVersion < 0 || requested == null || requested.size() > 1000)
-      throw invalid();
+    if (requested == null || requested.size() > 1000) throw invalid();
     Map<UUID, Long> proposed = new HashMap<>();
     for (RoleReference role : requested) {
       if (role == null

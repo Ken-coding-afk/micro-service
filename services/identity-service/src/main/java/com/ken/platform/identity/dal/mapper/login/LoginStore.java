@@ -1,12 +1,12 @@
 package com.ken.platform.identity.dal.mapper.login;
 
 import com.ken.platform.identity.dal.dataobject.login.LoginRealm;
+import com.ken.platform.identity.dal.support.IdentityTenantScope;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Repository
 public class LoginStore {
@@ -42,9 +42,11 @@ public class LoginStore {
   }
 
   private final JdbcTemplate jdbc;
+  private final IdentityTenantScope tenantScope;
 
-  public LoginStore(JdbcTemplate jdbc) {
+  public LoginStore(JdbcTemplate jdbc, IdentityTenantScope tenantScope) {
     this.jdbc = jdbc;
+    this.tenantScope = tenantScope;
   }
 
   public void lockCatalog() {
@@ -326,21 +328,7 @@ public class LoginStore {
   }
 
   private <T> T scoped(UUID tenant, Supplier<T> operation) {
-    if (!TransactionSynchronizationManager.isActualTransactionActive())
-      throw new IllegalStateException("登录数据访问必须位于事务内");
-    String previous =
-        jdbc.queryForObject(
-            "SELECT COALESCE(current_setting('app.tenant_id',true),'')", String.class);
-    String selected = tenant == null ? "" : tenant.toString();
-    if (previous != null && !previous.isEmpty() && !previous.equals(selected))
-      throw new IllegalStateException("登录事务不能切换租户");
-    jdbc.queryForObject("SELECT set_config('app.tenant_id',?,true)", String.class, selected);
-    T result = operation.get();
-    jdbc.queryForObject(
-        "SELECT set_config('app.tenant_id',?,true)",
-        String.class,
-        previous == null ? "" : previous);
-    return result;
+    return tenantScope.within(tenant, operation);
   }
 
   private static Instant instant(java.sql.ResultSet row, String column)

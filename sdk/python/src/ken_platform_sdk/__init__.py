@@ -5,4 +5,6 @@
 模块边界见《Java 与 Python 协作设计》。
 """
 
-__version__ = "1.0.0.dev0"
+from importlib.metadata import version
+
+__version__ = version("ken-platform-sdk")

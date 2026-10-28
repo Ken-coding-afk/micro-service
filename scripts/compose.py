@@ -1,6 +1,8 @@
 """本地基础服务的状态、日志和停止，不删除数据卷。"""
 
 import argparse
+import subprocess
+import sys
 from pathlib import Path
 
 from common import FRAMEWORK, run
@@ -43,4 +45,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, OSError):
+        print("操作失败：请检查输入、路径和文件权限。", file=sys.stderr)
+        raise SystemExit(2) from None
+    except subprocess.CalledProcessError:
+        print("外部命令执行失败，请检查对应工具的脱敏日志。", file=sys.stderr)
+        raise SystemExit(1) from None

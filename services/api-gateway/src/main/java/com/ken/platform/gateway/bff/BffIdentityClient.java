@@ -3,6 +3,7 @@ package com.ken.platform.gateway.bff;
 import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
 import com.ken.platform.foundation.http.CallContext;
+import com.ken.platform.foundation.http.OutboundCallBudget;
 import com.ken.platform.foundation.http.PlatformException;
 import io.netty.channel.ChannelOption;
 import java.net.URI;
@@ -87,42 +88,27 @@ public final class BffIdentityClient {
                               || uri.getRawFragment() != null
                               || !PATHS.contains(uri.getRawPath()))
                             return Mono.error(unavailable());
-                          var instance = discovery.choose("identity-service");
                           CallContext call = context.getOrDefault(CallContext.class, null);
-                          Duration budget =
-                              Duration.ofMillis(
-                                  Math.max(1, (long) (parameters.responseBudgetSeconds() * 1000)));
-                          if (call != null && call.deadline() != null) {
-                            Duration remaining = Duration.between(clock.instant(), call.deadline());
-                            if (remaining.isNegative() || remaining.isZero())
-                              return Mono.error(unavailable());
-                            if (remaining.compareTo(budget) < 0) budget = remaining;
-                          }
+                          var budget =
+                              new OutboundCallBudget(
+                                  clock,
+                                  Duration.ofMillis(
+                                      Math.max(
+                                          1, (long) (parameters.responseBudgetSeconds() * 1000))),
+                                  call);
+                          if (budget.remaining().isZero()) return Mono.error(unavailable());
+                          var instance = discovery.choose("identity-service");
                           var forwarded =
                               ClientRequest.from(request)
                                   .url(instance.origin().resolve(uri.getRawPath()))
-                                  .headers(
-                                      headers -> {
-                                        if (call != null) {
-                                          headers.set("X-Request-Id", call.requestId());
-                                          if (call.traceparent() != null)
-                                            headers.set("traceparent", call.traceparent());
-                                          if (call.deadline() != null)
-                                            headers.set(
-                                                "X-Request-Deadline",
-                                                Long.toString(call.deadline().toEpochMilli()));
-                                        }
-                                      })
+                                  .headers(headers -> budget.writeHeaders(headers, call))
                                   .build();
-                          Duration totalBudget = budget;
-                          long started = System.nanoTime();
                           return next.exchange(forwarded)
-                              .timeout(budget)
+                              .timeout(budget.remaining())
                               .flatMap(
                                   response -> {
-                                    long remaining =
-                                        totalBudget.toNanos() - (System.nanoTime() - started);
-                                    if (remaining <= 0)
+                                    Duration remaining = budget.remaining();
+                                    if (remaining.isZero())
                                       return response.releaseBody().then(Mono.error(unavailable()));
                                     var bounded =
                                         response
@@ -130,7 +116,7 @@ public final class BffIdentityClient {
                                             .body(
                                                 body ->
                                                     body.takeUntilOther(
-                                                        Mono.delay(Duration.ofNanos(remaining))
+                                                        Mono.delay(remaining)
                                                             .then(Mono.error(unavailable()))))
                                             .build();
                                     if (bounded.statusCode().is3xxRedirection()

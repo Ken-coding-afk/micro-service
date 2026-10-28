@@ -43,6 +43,13 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _save_state(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
 def _publish(args: argparse.Namespace) -> int:
     env = contract.parse_env_file(Path(args.env_file))
     issues = contract.validate_env(env)
@@ -153,6 +160,8 @@ def _publish(args: argparse.Namespace) -> int:
             if remote_digest == new_digest:
                 entry["result"] = "UNCHANGED"
                 state[state_key] = new_digest
+                if not args.dry_run:
+                    _save_state(state_path, state)
                 results.append(entry)
                 continue
 
@@ -187,17 +196,10 @@ def _publish(args: argparse.Namespace) -> int:
             state[state_key] = new_digest
             print(f"[publish] 已发布 {data_id}(摘要 {new_digest[:12]})")
             results.append(entry)
-            if not args.dry_run:
-                state_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = state_path.with_suffix(".json.tmp")
-                temporary.write_text(
-                    json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                temporary.replace(state_path)
+            _save_state(state_path, state)
 
     if not args.dry_run:
-        state_path.parent.mkdir(exist_ok=True)
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
         log_path = state_path.parent / "publish-log.jsonl"
         with log_path.open("a", encoding="utf-8") as fh:
             for entry in results:

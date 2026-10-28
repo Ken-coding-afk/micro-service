@@ -344,7 +344,11 @@ class BrowserLoginHttpTest {
                 username,
                 material.hash()));
     redis = new LoginRedisFixture();
-    store = spy(new LoginStore(jdbc));
+    store =
+        spy(
+            new LoginStore(
+                jdbc,
+                new com.ken.platform.identity.dal.support.IdentityTenantScope(jdbc, manager)));
     protocolAudits = spy(new SecurityAuditRepository(jdbc));
     oauthClients = spy(new ClientStore(jdbc));
     oauthAuthorizations =
@@ -362,7 +366,11 @@ class BrowserLoginHttpTest {
             Clock.systemUTC(),
             manager,
             oauthAuthorizations);
-    tokenUsers = spy(new com.ken.platform.identity.dal.mapper.oauth.UserTokenStore(jdbc));
+    tokenUsers =
+        spy(
+            new com.ken.platform.identity.dal.mapper.oauth.UserTokenStore(
+                jdbc,
+                new com.ken.platform.identity.dal.support.IdentityTenantScope(jdbc, manager)));
     userTokens =
         new com.ken.platform.identity.service.oauth.UserTokenService(
             oauthClients,

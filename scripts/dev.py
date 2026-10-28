@@ -71,8 +71,8 @@ def prepare(
 
     item = project_config(root)["services"][service]
     directory = (root / item["directory"]).resolve()
-    if not directory.is_relative_to(root.resolve()) or not directory.is_dir():
-        raise ValueError("业务目录不存在或越界")
+    if not directory.is_dir():
+        raise ValueError("业务目录不存在")
     if item["language"] == "java":
         jar = (directory / item["entry"]).resolve()
         if (

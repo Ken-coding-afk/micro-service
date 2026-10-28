@@ -2,7 +2,7 @@
 
 > 本轮实施目标：D-20261028-01；[五项验收审查修复](../plans/2026-10-28-验收审查五项修复-plan.md)已确认实施；本轮只做定向验证，既往运行结果见原验收计划。
 
-> 文档版本：2.0；文档集基线：D-20261028-01；更新：2026-10-28。  
+> 文档版本：2.1；文档集基线：D-20261028-02；更新：2026-10-28。  
 > 状态：已确认的目标设计；不代表代码、脚本、镜像或运行能力已实现。  
 > 本文负责：登录、OAuth2/OIDC、token/BFF、第三方身份和机器认证。  
 > 导航：[文档总入口](../01-文档导航.md)；本次流量保护任务与证据见[实施计划](../plans/2026-10-27-限流熔断与并发保护-plan.md)；历史混合接入见[原计划](../plans/2026-10-27-混合项目接入与审查修正-plan.md)。
@@ -91,6 +91,9 @@ sys_client_policy.registered_client_id 唯一且外键指向官方记录内部 i
 [Spring 官方 RegisteredClient 模型](https://docs.spring.io/spring-security/reference/servlet/oauth2/authorization-server/core-model-components.html)定义协议字段和 Repository 接口；租户、audience、状态属于本框架扩展。实际 JDBC/PG 类型和事务集成由精简计划 T-04 验证，不假定“用了官方表”就自动具备多租户策略。
 
 <a id="bff"></a>
+
+BFF 与 Java SDK 共用 OutboundCallBudget 的有效预算及 request_id/traceparent/deadline 传播规则；OAuth 保留 WebClient、Basic/form、响应体限额及零写重试。登录成功保持 CSRF 清理、session ID 轮换和 303 顺序。普通 identity API 共用 IdentityApiResponses，OAuth 协议响应不套普通信封。预期拒绝仍通过原 Outcome 提交必要撤销，不能统一改为异常回滚。
+
 
 ## 3. 浏览器登录与 BFF
 
@@ -286,3 +289,5 @@ Bearer 认证使用 SCG 实际选择的原生 RouteDefinition 元数据决定 au
 - 2026-10-27，D-20261027-11：按已确认综合计划同步本主题增量；A 层实施，运行证据另记，历史验收不追改。
 
 - 2026-10-28，D-20261028-01：按用户确认的五项审查修复，明确当前流程回调 CSP、发布与应用摘要、按需端口预检及 UTF-8/显式 CI 回归；仅修改本主题相关正文，历史验收不追改。
+
+修订：2026-10-28，D-20261028-02：按已确认的整体整改计划明确共享机制与验收边界；实际实施和验证见该计划。
