@@ -65,8 +65,8 @@ jobs:
         node-version: 24.13.0
       if: steps.scope.outputs.needed == 'true'
     # 先更新并保存数据库，后续审计发现漏洞也不会丢失已完成的冷启动缓存。
-    - name: Update vulnerability database from NVD feeds
-      run: ./mvnw -B -N org.owasp:dependency-check-maven:12.1.0:update-only -DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz
+    - name: Update vulnerability database from OWASP NVD mirror
+      run: ./mvnw -B -N org.owasp:dependency-check-maven:12.1.0:update-only -DnvdDatafeedUrl=https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache/nvdcve-{0}.json.gz
       if: steps.scope.outputs.needed == 'true'
     - uses: actions/cache/save@3edfce9056124e459a23f683a21433670d47daca
       with:
@@ -79,7 +79,7 @@ jobs:
 
         ./mvnw -B -DskipTests install
 
-        ./mvnw -B org.owasp:dependency-check-maven:12.1.0:aggregate -DfailBuildOnCVSS=7 -Dformats=JSON,HTML -DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz'
+        ./mvnw -B org.owasp:dependency-check-maven:12.1.0:aggregate -DfailBuildOnCVSS=7 -Dformats=JSON,HTML -DnvdDatafeedUrl=https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache/nvdcve-{0}.json.gz'
       if: steps.scope.outputs.needed == 'true'
     - run: "for directory in . sdk/python services/*; do\n  if [ -f \"$directory/pyproject.toml\" ]; then\n    uv\
         \ export --frozen --all-extras --project \"$directory\" --format requirements-txt --no-emit-local > /tmp/audit-requirements.txt\n\
