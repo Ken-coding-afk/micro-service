@@ -103,6 +103,7 @@ def test_generated_project_has_one_source_and_independent_entries(project):
         (project / ".github/workflows/checks.yml").read_text(encoding="utf-8")
     )
     assert "maintenance" not in workflow["jobs"]
+    assert (project / ".github/dependency-check-suppressions.xml").is_file()
     entries = workflow["jobs"]["python"]["strategy"]["matrix"]["include"]
     python_tests = next(
         row["tests"] for row in entries if row["module"] == "services/inspection-service"

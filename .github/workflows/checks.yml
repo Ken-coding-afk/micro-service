@@ -111,7 +111,7 @@ jobs:
         - module: services/api-gateway
           tests: BffRelayTest,BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest,GatewayTokenPreflightFilterTest
         - module: services/sample-java-service
-          tests: ItemDeadlineTest,ItemControllerTest
+          tests: ItemDeadlineTest,ItemControllerTest,SwaggerUiResourceTest
   python:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
