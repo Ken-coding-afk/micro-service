@@ -40,6 +40,24 @@ class ContextLogFilter(logging.Filter):
         return True
 
 
+class SafeAccessLogFilter(logging.Filter):
+    """在所有 handler 格式化前移除 Uvicorn 查询串，未知记录形状拒绝输出。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "uvicorn.access":
+            return True
+        args = record.args
+        if (
+            record.msg != '%s - "%s %s HTTP/%s" %d'
+            or not isinstance(args, tuple)
+            or len(args) != 5
+            or not isinstance(args[2], str)
+        ):
+            return False
+        record.args = (*args[:2], args[2].partition("?")[0], *args[3:])
+        return True
+
+
 class ContextJsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         data = {
@@ -63,6 +81,9 @@ class ContextJsonFormatter(logging.Formatter):
 
 def configure_logging(service: str) -> None:
     """进程入口调用；已有业务 handler 保留，补充字段，默认输出 JSON。"""
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, SafeAccessLogFilter) for f in access_logger.filters):
+        access_logger.addFilter(SafeAccessLogFilter())
     root = logging.getLogger()
     if not root.handlers:
         default_handler = logging.StreamHandler()

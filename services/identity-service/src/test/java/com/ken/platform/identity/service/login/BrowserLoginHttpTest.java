@@ -149,6 +149,7 @@ class BrowserLoginHttpTest {
     com.ken.platform.identity.service.authorization.TenantManagementAuthorization.class,
     com.ken.platform.identity.service.audit.ManagementAudits.class,
     LoginPageController.class,
+    com.ken.platform.identity.controller.login.ConsentPageController.class,
     SessionCleanup.class
   })
   static class WebConfiguration {
@@ -240,6 +241,7 @@ class BrowserLoginHttpTest {
 
   private HikariDataSource pool;
   private JdbcTemplate jdbc;
+  private Integer originalFailureThreshold;
   private JdbcTransactionManager manager;
   private SqlSessionTemplate managementMappers;
   private com.ken.platform.identity.dal.mapper.audit.AuditQueryMapper auditQueries;
@@ -297,6 +299,10 @@ class BrowserLoginHttpTest {
     config.setMaximumPoolSize(6);
     pool = new HikariDataSource(config);
     jdbc = new JdbcTemplate(pool);
+    originalFailureThreshold =
+        jdbc.queryForObject(
+            "SELECT login_failure_threshold FROM sys_security_policy WHERE owner_type='PLATFORM'",
+            Integer.class);
     manager = new JdbcTransactionManager(pool);
     var mybatis = new Configuration();
     mybatis.getTypeHandlerRegistry().register(UUID.class, UuidTypeHandler.class);
@@ -654,6 +660,80 @@ class BrowserLoginHttpTest {
   }
 
   @Test
+  void federationConcurrentSameStateCreatesOnlyOneBindingAndLocalSession() throws Exception {
+    ordinary();
+    login();
+    federationCallbackRace("BIND");
+    assertThat(
+            data(
+                () ->
+                    jdbc.queryForObject(
+                        "SELECT count(*) FROM sys_external_identity WHERE user_id=?",
+                        Integer.class,
+                        user)))
+        .isEqualTo(1);
+    for (int round = 0; round < 20; round++) {
+      int before =
+          jdbc.queryForObject(
+              "SELECT count(*) FROM sys_login_session WHERE user_id=?", Integer.class, user);
+      federationCallbackRace("LOGIN");
+      assertThat(
+              jdbc.queryForObject(
+                  "SELECT count(*) FROM sys_login_session WHERE user_id=?", Integer.class, user))
+          .isEqualTo(before + 1);
+    }
+  }
+
+  private void federationCallbackRace(String mode) throws Exception {
+    String callback = federationCallback(mode);
+    String cookie =
+        cookies.getCookieStore().getCookies().stream()
+            .filter(value -> !value.hasExpired())
+            .map(value -> value.getName() + "=" + value.getValue())
+            .collect(java.util.stream.Collectors.joining("; "));
+    var ready = new CountDownLatch(20);
+    var start = new CountDownLatch(1);
+    try (var caller = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+        var workers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var pending = new java.util.ArrayList<java.util.concurrent.Future<HttpResponse<String>>>();
+      for (int request = 0; request < 20; request++) {
+        pending.add(
+            workers.submit(
+                () -> {
+                  ready.countDown();
+                  assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                  return caller.send(
+                      HttpRequest.newBuilder(URI.create(origin + callback))
+                          .timeout(Duration.ofSeconds(15))
+                          .header("Cookie", cookie)
+                          .GET()
+                          .build(),
+                      HttpResponse.BodyHandlers.ofString());
+                }));
+      }
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      var responses = new java.util.ArrayList<HttpResponse<String>>();
+      for (var future : pending) responses.add(future.get(30, TimeUnit.SECONDS));
+      String destination =
+          mode.equals("BIND") ? "/identity/login?external=bound" : "/identity/session";
+      assertThat(responses)
+          .allMatch(response -> response.statusCode() == 302 || response.statusCode() == 401);
+      assertThat(
+              responses.stream()
+                  .filter(
+                      response ->
+                          response.statusCode() == 302
+                              && response
+                                  .headers()
+                                  .firstValue("Location")
+                                  .orElse("")
+                                  .equals(destination)))
+          .hasSize(1);
+    }
+  }
+
+  @Test
   void federationBindingRechecksRevokedSessionAndLoginRechecksDisabledAccount() throws Exception {
     ordinary();
     login();
@@ -725,7 +805,16 @@ class BrowserLoginHttpTest {
       if (!redis.connection.isRunning()) redis.connection.start();
       redis.close();
     }
-    if (pool != null) pool.close();
+    if (pool != null) {
+      try {
+        if (originalFailureThreshold != null)
+          jdbc.update(
+              "UPDATE sys_security_policy SET login_failure_threshold=?,version=version+1 WHERE owner_type='PLATFORM'",
+              originalFailureThreshold);
+      } finally {
+        pool.close();
+      }
+    }
   }
 
   @Test
@@ -2579,6 +2668,9 @@ class BrowserLoginHttpTest {
                             && path.toString().endsWith(".class"))
                 .toList()) Files.copy(file, target.resolve(file.getFileName()));
       }
+      Files.copy(
+          classes.getParent().resolve("RouteFixtures.class"),
+          target.getParent().resolve("RouteFixtures.class"));
       assertThat(target.resolve("GatewayBffProbe.class")).exists();
       log = signingDirectory.resolve("bff-gateway-" + tag + ".log");
       var builder =
@@ -2616,10 +2708,13 @@ class BrowserLoginHttpTest {
         assertThat(Files.exists(ready)).as("BFF Gateway 启动，检查隔离日志 %s", log).isTrue();
       } catch (Exception | AssertionError failed) {
         if (process.isAlive()) process.destroyForcibly();
-        Files.copy(
-            log,
-            Path.of("../.local/test-evidence/t40-bff-probe-failure.log"),
-            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        try {
+          Path evidence = Path.of("..", "..", ".local", "test-evidence").resolve(log.getFileName());
+          Files.createDirectories(evidence.getParent());
+          Files.copy(log, evidence);
+        } catch (java.io.IOException copyFailed) {
+          failed.addSuppressed(copyFailed);
+        }
         throw failed;
       }
     }
@@ -2632,10 +2727,9 @@ class BrowserLoginHttpTest {
         if (!process.waitFor(20, TimeUnit.SECONDS)) process.destroyForcibly();
       }
       assertThat(process.isAlive()).isFalse();
-      Files.copy(
-          log,
-          Path.of("../.local/test-evidence/t40-bff-probe-last.log"),
-          java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      Path evidence = Path.of("..", "..", ".local", "test-evidence").resolve(log.getFileName());
+      Files.createDirectories(evidence.getParent());
+      Files.copy(log, evidence);
       assertThat(process.exitValue()).isZero();
     }
   }
@@ -3002,7 +3096,7 @@ class BrowserLoginHttpTest {
         binding = signingDirectory.resolve("browser-ui-binding.json");
     Files.writeString(initial, secret);
     Files.writeString(changed, "Browser UI password " + UUID.randomUUID());
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t46-browser-result.json"),
         screenshot = evidence.resolve("t46-browser-account.png"),
         log = evidence.resolve("t46-browser-live.log");
@@ -3151,7 +3245,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("platform-ui-password.secret"),
         binding = signingDirectory.resolve("platform-ui-binding.json");
     Files.writeString(passwordFile, password);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t47-browser-result.json"),
         screenshot = evidence.resolve("t47-browser-platform.png"),
         log = evidence.resolve("t47-browser-live.log");
@@ -3254,7 +3348,7 @@ class BrowserLoginHttpTest {
     Path initial = signingDirectory.resolve("users-ui-initial.secret"),
         binding = signingDirectory.resolve("users-ui-binding.json");
     Files.writeString(initial, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t48-browser-result.json"),
         screenshot = evidence.resolve("t48-browser-users.png"),
         log = evidence.resolve("t48-browser-live.log");
@@ -3335,7 +3429,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("permissions-ui-password.secret"),
         binding = signingDirectory.resolve("permissions-ui-binding.json");
     Files.writeString(passwordFile, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t49-browser-result.json"),
         screenshot = evidence.resolve("t49-browser-permissions.png"),
         log = evidence.resolve("t49-browser-live.log");
@@ -3507,7 +3601,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("roles-ui-password.secret"),
         binding = signingDirectory.resolve("roles-ui-binding.json");
     Files.writeString(passwordFile, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t50-browser-result.json"),
         screenshot = evidence.resolve("t50-browser-roles.png"),
         log = evidence.resolve("t50-browser-live.log");
@@ -3601,7 +3695,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("user-roles-ui-password.secret"),
         binding = signingDirectory.resolve("user-roles-ui-binding.json");
     Files.writeString(passwordFile, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t51-browser-result.json"),
         screenshot = evidence.resolve("t51-browser-user-roles.png"),
         log = evidence.resolve("t51-browser-live.log");
@@ -3787,7 +3881,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("role-members-ui-password.secret"),
         binding = signingDirectory.resolve("role-members-ui-binding.json");
     Files.writeString(passwordFile, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t52-browser-result.json"),
         screenshot = evidence.resolve("t52-browser-role-members.png"),
         log = evidence.resolve("t52-browser-live.log");
@@ -3932,7 +4026,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("role-description-ui-password.secret"),
         binding = signingDirectory.resolve("role-description-ui-binding.json");
     Files.writeString(passwordFile, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize();
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize();
     Path result = evidence.resolve("t53-browser-result.json"),
         screenshot = evidence.resolve("t53-browser-role-description.png"),
         log = evidence.resolve("t53-browser-live.log");
@@ -4195,7 +4289,7 @@ class BrowserLoginHttpTest {
     Path passwordFile = signingDirectory.resolve("role-delete-ui-password.secret"),
         binding = signingDirectory.resolve("role-delete-ui-binding.json");
     Files.writeString(passwordFile, secret);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize(),
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize(),
         result = evidence.resolve("t54-browser-result.json"),
         screenshot = evidence.resolve("t54-browser-role-delete.png"),
         log = evidence.resolve("t54-browser-live.log");
@@ -4368,7 +4462,7 @@ class BrowserLoginHttpTest {
                 descriptor.get("tenant_bff_secret_file").asString())));
     Files.writeString(tenantFile, secret);
     Files.writeString(platformFile, platformPassword);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize(),
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize(),
         result = evidence.resolve("t57-browser-result.json"),
         screenshot = evidence.resolve("t57-browser-audits.png"),
         log = evidence.resolve("t57-browser-live.log");
@@ -4451,7 +4545,7 @@ class BrowserLoginHttpTest {
                 descriptor.get("tenant_bff_secret_file").asString())));
     Files.writeString(actorFile, secret);
     Files.writeString(targetFile, targetPassword);
-    Path evidence = Path.of("../.local/test-evidence").toAbsolutePath().normalize(),
+    Path evidence = Path.of("..", "..", ".local", "test-evidence").toAbsolutePath().normalize(),
         result = evidence.resolve("t58-browser-result.json"),
         screenshot = evidence.resolve("t58-browser-sessions.png"),
         log = evidence.resolve("t58-browser-live.log");
@@ -5747,7 +5841,9 @@ class BrowserLoginHttpTest {
     var platformMe = json(bearer("/api/v1/identity/me", platformToken)).get("data");
     assertThat(platformMe.get("principal_type").asString()).isEqualTo("platform");
     assertThat(platformMe.get("audiences").get("identity-service").get("permissions").size())
-        .isEqualTo(9);
+        .isEqualTo(10);
+    assertThat(platformMe.get("audiences").get("identity-service").get("permissions").toString())
+        .contains("\"platform:monitoring:read\"");
     var before = oauthClients.byClientId("identity-admin-tenant");
     String code = "bootstrap-tenant-" + UUID.randomUUID();
     var command =
@@ -6243,9 +6339,7 @@ class BrowserLoginHttpTest {
 
   private ManagementFixture securityManager(boolean protectedManager) throws Exception {
     var manager = managementFixture(protectedManager);
-    for (String permission :
-        java.util.List.of(
-            "identity:security:read", "identity:security:manage", "identity:audit:read")) {
+    for (String permission : java.util.List.of("identity:audit:read")) {
       String[] parts = permission.split(":");
       jdbc.update(
           "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'安全管理','identity-service','TENANT','identity','身份',?,'安全资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
@@ -6261,18 +6355,12 @@ class BrowserLoginHttpTest {
                   manager.managerRole(),
                   permission));
     }
-    data(
-        () ->
-            jdbc.update(
-                "INSERT INTO sys_tenant_capability(tenant_id,capability,enabled) VALUES(?,'SECURITY_POLICY_MANAGEMENT',true) ON CONFLICT(tenant_id,capability) DO UPDATE SET enabled=true,version=sys_tenant_capability.version+1",
-                tenant));
     var scopes =
         java.util.Set.of(
             "profile",
             "identity.users",
             "identity.roles",
             "identity.permissions",
-            "identity.security",
             "identity.audit");
     clientBoundary(manager.client(), scopes, java.util.Set.of("identity-service"));
     var client =
@@ -6547,7 +6635,7 @@ class BrowserLoginHttpTest {
   @Test
   void auditApiRejectsUnboundedInputsAndWritesAndDoesNotTurnStorageOutageIntoEmptyList()
       throws Exception {
-    var manager = securityManager(false);
+    var manager = securityManager(true);
     auditFixture(
         tenant,
         user,
@@ -7015,8 +7103,9 @@ class BrowserLoginHttpTest {
             org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN);
     assertThat(stored).isNotNull();
     assertThat(stored.getAccessToken().isActive()).isFalse();
-    assertThat(get("/oauth2/authorize?" + authorizationQuery(client, tenantCode)).statusCode())
-        .isEqualTo(200);
+    assertThat(
+            consentPage(get("/oauth2/authorize?" + authorizationQuery(client, tenantCode))).body())
+        .contains("同意授权", "name=\"_csrf\"");
     var renewed = json(oauthToken(client, codeGrant(authorizationCode(client), VERIFIER)));
     assertThat(bearer("/userinfo", renewed.get("access_token").asString()).statusCode())
         .isEqualTo(200);
@@ -7462,7 +7551,7 @@ class BrowserLoginHttpTest {
     var builder =
         new ProcessBuilder(
             System.getenv("PLATFORM_TEST_PYTHON"),
-            Path.of("..", "python-sdk", "tests", "probe_resource_identity.py")
+            Path.of("..", "..", "sdk", "python", "tests", "probe_resource_identity.py")
                 .toAbsolutePath()
                 .toString(),
             binding.toString());
@@ -7551,7 +7640,7 @@ class BrowserLoginHttpTest {
                   path ->
                       path.getFileName()
                           .toString()
-                          .matches("GatewayResourceProbe(?:\\$.*)?\\.class"))
+                          .matches("(?:GatewayResourceProbe(?:\\$.*)?|RouteFixtures)\\.class"))
               .toList()) Files.copy(file, probeTarget.resolve(file.getFileName()));
     }
     assertThat(probeTarget.resolve("GatewayResourceProbe.class")).exists();
@@ -7711,7 +7800,7 @@ class BrowserLoginHttpTest {
     var builder =
         new ProcessBuilder(
             System.getenv("PLATFORM_TEST_PYTHON"),
-            Path.of("..", "python-sdk", "tests", "probe_resource_server.py")
+            Path.of("..", "..", "sdk", "python", "tests", "probe_resource_server.py")
                 .toAbsolutePath()
                 .toString(),
             binding.toString());
@@ -8219,9 +8308,11 @@ class BrowserLoginHttpTest {
       throws Exception {
     var response = get("/oauth2/authorize?" + authorizationQuery(client, requestedTenantCode));
     if (client.publicClient()) {
-      assertThat(response.statusCode()).isEqualTo(200);
+      response = consentPage(response);
       var state = Pattern.compile("name=\"state\"[^>]*value=\"([^\"]+)\"").matcher(response.body());
       assertThat(state.find()).isTrue();
+      var csrf = Pattern.compile("name=\"_csrf\"[^>]*value=\"([^\"]+)\"").matcher(response.body());
+      assertThat(csrf.find()).isTrue();
       response =
           post(
               "/oauth2/authorize",
@@ -8233,7 +8324,7 @@ class BrowserLoginHttpTest {
                   "scope",
                   "profile",
                   "_csrf",
-                  csrf("/identity/session")));
+                  csrf.group(1)));
     }
     assertThat(response.statusCode()).isEqualTo(302);
     String location = response.headers().firstValue("Location").orElseThrow();
@@ -8242,11 +8333,138 @@ class BrowserLoginHttpTest {
     return parameter(location, "code");
   }
 
-  private String consentState(HttpResponse<String> response) {
+  private HttpResponse<String> consentPage(HttpResponse<String> response) throws Exception {
+    assertThat(response.statusCode()).isEqualTo(302);
+    String location = response.headers().firstValue("Location").orElseThrow();
+    var uri = URI.create(location);
+    assertThat(uri.getPath()).isEqualTo("/identity/consent");
+    assertThat(uri.getScheme() + "://" + uri.getAuthority()).isEqualTo("http://localhost:18080");
+    var page = get(uri.getRawPath() + "?" + uri.getRawQuery());
+    assertThat(page.statusCode()).isEqualTo(200);
+    return page;
+  }
+
+  private String consentState(HttpResponse<String> response) throws Exception {
+    response = consentPage(response);
     assertThat(response.statusCode()).isEqualTo(200);
     var state = Pattern.compile("name=\"state\"[^>]*value=\"([^\"]+)\"").matcher(response.body());
     assertThat(state.find()).isTrue();
     return state.group(1);
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+  void publicConsentUsesRenderedCsrfForApprovalAndRefusal(boolean approve) throws Exception {
+    ordinary();
+    login();
+    var client = oauthClient(true);
+    var page = consentPage(get("/oauth2/authorize?" + authorizationQuery(client, tenantCode)));
+    assertThat(page.body())
+        .contains("同意授权", "拒绝", "action=\"/oauth2/authorize\"")
+        .doesNotContain("<script", "cdn.jsdelivr.net", "bootstrap.min.css");
+    assertThat(page.headers().firstValue("Content-Security-Policy").orElseThrow())
+        .contains("script-src 'self'", "form-action 'self'", "https://client.example");
+    assertThat(page.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+    var state = Pattern.compile("name=\"state\"[^>]*value=\"([^\"]+)\"").matcher(page.body());
+    var csrf = Pattern.compile("name=\"_csrf\"[^>]*value=\"([^\"]+)\"").matcher(page.body());
+    assertThat(state.find()).isTrue();
+    assertThat(csrf.find()).isTrue();
+    var fields = new HashMap<>(Map.of("client_id", client.clientId(), "state", state.group(1)));
+    if (approve) fields.put("scope", "profile");
+    assertThat(post("/oauth2/authorize", fields).statusCode()).isEqualTo(403);
+    fields.put("_csrf", "invalid-csrf");
+    assertThat(post("/oauth2/authorize", fields).statusCode()).isEqualTo(403);
+    fields.put("_csrf", csrf.group(1));
+    var submitted = post("/oauth2/authorize", fields);
+    assertThat(submitted.statusCode()).isEqualTo(302);
+    String location = submitted.headers().firstValue("Location").orElseThrow();
+    assertThat(URI.create(location).getHost()).isEqualTo("client.example");
+    if (approve) {
+      assertThat(oauthToken(client, codeGrant(parameter(location, "code"), VERIFIER)).statusCode())
+          .isEqualTo(200);
+    } else {
+      assertThat(parameter(location, "error")).isEqualTo("access_denied");
+      assertThat(location).doesNotContain("code=");
+    }
+  }
+
+  @Test
+  void localSwaggerLookupUsesPersistedUserTypeAndRejectsDisabledOrConfidentialClients()
+      throws Exception {
+    ordinary();
+    String callback = "http://localhost:48083/docs/oauth2-redirect";
+    var client = oauthClient(true);
+    jdbc.update(
+        "UPDATE oauth2_registered_client SET client_id=?,redirect_uris=? WHERE id=?",
+        client.clientId() + "-swagger",
+        callback,
+        client.id());
+    var confidential = oauthClient(false);
+    String forbidden = "http://localhost:48084/docs/oauth2-redirect";
+    jdbc.update(
+        "UPDATE oauth2_registered_client SET client_id=?,redirect_uris=? WHERE id=?",
+        confidential.clientId() + "-swagger",
+        forbidden,
+        confidential.id());
+    var clients = context.getBean(ClientStore.class);
+    assertThat(clients.localSwaggerRedirects()).contains(callback).doesNotContain(forbidden);
+    // 未开始该客户端的授权流程，登录页不枚举已登记回调。
+    assertThat(get("/identity/login").headers().firstValue("Content-Security-Policy").orElseThrow())
+        .doesNotContain(callback, forbidden);
+    try (var corsContext =
+        new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+      corsContext.setEnvironment(
+          new org.springframework.mock.env.MockEnvironment().withProperty("APP_ENV", "local"));
+      corsContext.registerBean(ClientStore.class, () -> clients);
+      corsContext.register(com.ken.platform.identity.config.LocalSwaggerCorsConfiguration.class);
+      corsContext.refresh();
+      var filter =
+          corsContext
+              .getBean(
+                  "localSwaggerCors",
+                  org.springframework.boot.web.servlet.FilterRegistrationBean.class)
+              .getFilter();
+      for (String origin : java.util.List.of("http://localhost:48083", "http://localhost:48084")) {
+        var request =
+            new org.springframework.mock.web.MockHttpServletRequest("OPTIONS", "/oauth2/token");
+        request.addHeader("Origin", origin);
+        request.addHeader("Access-Control-Request-Method", "POST");
+        request.addHeader("Access-Control-Request-Headers", "content-type,x-requested-with");
+        var response = new org.springframework.mock.web.MockHttpServletResponse();
+        filter.doFilter(request, response, new org.springframework.mock.web.MockFilterChain());
+        if (origin.endsWith(":48083"))
+          assertThat(response.getHeader("Access-Control-Allow-Origin")).isEqualTo(origin);
+        else assertThat(response.getStatus()).isEqualTo(403);
+      }
+    }
+    jdbc.update(
+        "UPDATE sys_client_policy SET status='DISABLED' WHERE registered_client_id=?", client.id());
+    assertThat(clients.localSwaggerRedirects()).doesNotContain(callback, forbidden);
+    assertThat(get("/identity/login").headers().firstValue("Content-Security-Policy").orElseThrow())
+        .doesNotContain(callback, forbidden);
+  }
+
+  @Test
+  void consentPageRequiresLoginAndRejectsUnknownClientsAndUnregisteredScopes() throws Exception {
+    ordinary();
+    var client = oauthClient(true);
+    String query = "?client_id=" + client.clientId() + "&scope=profile&state=display-state";
+    var anonymous = get("/identity/consent" + query);
+    assertThat(anonymous.statusCode()).isEqualTo(302);
+    assertThat(anonymous.headers().firstValue("Location").orElseThrow())
+        .contains("/identity/login");
+    login();
+    assertThat(
+            get("/identity/consent" + query.replace(client.clientId(), "unknown-client"))
+                .statusCode())
+        .isEqualTo(400);
+    assertThat(
+            get("/identity/consent" + query.replace("scope=profile", "scope=unregistered"))
+                .statusCode())
+        .isEqualTo(400);
+    assertThat(
+            get("/identity/consent" + query.replace("state=display-state", "state=")).statusCode())
+        .isEqualTo(400);
   }
 
   @Test
@@ -8817,6 +9035,33 @@ class BrowserLoginHttpTest {
   }
 
   @Test
+  void latePartialRedisWriteAfterLogoutIsDiscardedWithoutRevivingTheSession() throws Exception {
+    ordinary();
+    login();
+    String previous = sid();
+    UUID id = binding(previous);
+    redirected(
+        post("/identity/logout", Map.of("_csrf", csrf("/identity/session"))), "/identity/login");
+    String key = redis.project + ":local:identity-service:global:sso:sessions:" + previous;
+    var operations = sessions.getSessionRedisOperations();
+    operations.opsForHash().put(key, "lastAccessedTime", java.time.Instant.now().toEpochMilli());
+    try (var caller = HttpClient.newHttpClient()) {
+      var response =
+          caller.send(
+              HttpRequest.newBuilder(URI.create(origin + "/identity/session"))
+                  .timeout(Duration.ofSeconds(10))
+                  .header("Cookie", "IDENTITY_SSO=" + previous)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      redirected(response, "/identity/login");
+    }
+    assertThat(operations.hasKey(key)).isFalse();
+    assertThat(store.session(id, false).revokedAt()).isNotNull();
+    assertThat(sessions.findById(previous)).isNull();
+  }
+
+  @Test
   void disablingAccountRejectsExistingCookieAndDoesNotReviveItOnRestore() throws Exception {
     ordinary();
     login();
@@ -8900,8 +9145,7 @@ class BrowserLoginHttpTest {
   @Test
   void rateLimitedLoginReturnsRetryAfterAndDoesNotLeakTheAccount() throws Exception {
     jdbc.update(
-        "INSERT INTO sys_security_policy(owner_type,owner_tenant_id,login_failure_threshold) VALUES('TENANT',?,1)",
-        tenant);
+        "UPDATE sys_security_policy SET login_failure_threshold=1,version=version+1 WHERE owner_type='PLATFORM'");
     var response = post("/identity/login", credentials(csrf("/identity/login"), "wrong-password"));
     assertThat(response.statusCode()).isEqualTo(429);
     assertThat(Long.parseLong(response.headers().firstValue("Retry-After").orElseThrow()))

@@ -167,7 +167,7 @@ COPY --from=migration-build /build/services/{name}/.venv /opt/venv
 COPY --from=build /build/services/{name}/migrations /migrations
 ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /migrations
-ENTRYPOINT ["/opt/venv/bin/alembic", "-c", "/migrations/alembic.ini"]
+ENTRYPOINT ["/opt/venv/bin/python", "-m", "alembic", "-c", "/migrations/alembic.ini"]
 FROM {PYTHON} AS runtime
 WORKDIR /app
 COPY --from=build /build/services/{name}/.venv /opt/venv

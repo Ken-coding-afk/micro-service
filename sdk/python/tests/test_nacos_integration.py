@@ -45,7 +45,7 @@ async def test_native_nacos_reads_scoped_config_registers_and_deregisters(tmp_pa
         await provider.open()
         config = load_runtime(
             await provider.get_config("application-shared.yaml"),
-            await provider.get_config("api-gateway.yaml"),
+            await provider.get_config("sample-python-service.yaml"),
         )
         assert config.http.get_retry_extra == 1
         await provider.register()

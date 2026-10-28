@@ -2,12 +2,57 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
+import yaml
 from common import read_yaml
 
 BASE_SERVICES = {"identity-service", "api-gateway"}
+
+
+def nacos_content(root: Path, path: Path, selected: list[str]) -> str:
+    """派生本次发布的网关路由；源文件不改，既有已初始化服务继续保留。"""
+    content = path.read_text(encoding="utf-8")
+    if path.name != "api-gateway.yaml":
+        return content
+    declared = set(services(root)) - BASE_SERVICES
+    active = set(selected)
+    readers = root / ".local/runtime/api-gateway-secrets/readers.json"
+    if readers.exists():
+        document = json.loads(readers.read_text(encoding="utf-8"))
+        if not isinstance(document, dict) or not isinstance(document.get("readers"), list):
+            raise ValueError("既有网关内省清单格式无效")
+        for reader in document["readers"]:
+            if not isinstance(reader, dict) or not isinstance(reader.get("audience"), str):
+                raise ValueError("既有网关内省清单格式无效")
+            active.add(reader["audience"])
+    document = yaml.safe_load(content)
+    branch = document
+    for key in ("spring", "cloud", "gateway", "server", "webflux"):
+        if not isinstance(branch, dict) or key not in branch:
+            return content
+        branch = branch[key]
+    if not isinstance(branch, dict) or not isinstance(branch.get("routes"), list):
+        return content
+    routes = []
+    for route in branch["routes"]:
+        target = None
+        if isinstance(route, dict) and isinstance(route.get("uri"), str):
+            try:
+                uri = urlsplit(route["uri"])
+                if uri.scheme == "lb":
+                    target = uri.hostname
+            except ValueError:
+                pass  # 非法源配置仍交既有校验拒绝，不在选择过程中修正。
+        if target not in declared or target in active:
+            routes.append(route)
+    if len(routes) == len(branch["routes"]):
+        return content
+    branch["routes"] = routes
+    return yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
 
 
 def nacos_files(root: Path, selected: list[str]) -> list[Path]:

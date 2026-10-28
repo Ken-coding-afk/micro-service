@@ -151,6 +151,9 @@ class GatewaySecurityTest {
                     body.put(
                         "protocol_basic_preserved",
                         "Basic fixture".equals(headers.getFirst("Authorization")));
+                    body.put(
+                        "sso_cookie_preserved",
+                        "IDENTITY_SSO=fixture".equals(headers.getFirst("Cookie")));
                     exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
                     return exchange
                         .getResponse()
@@ -205,7 +208,7 @@ class GatewaySecurityTest {
   }
 
   @BeforeEach
-  void start() throws Exception {
+  void start(org.junit.jupiter.api.TestInfo info) throws Exception {
     identity = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     identity.createContext(
         "/oauth2/introspect",
@@ -290,6 +293,18 @@ class GatewaySecurityTest {
                     "GATEWAY_INTROSPECTION_CLIENTS_SECRET_FILE",
                     binding.toString())));
     application.registerBean("platformParameters", RuntimeParameters.class, this::parameters);
+    if (info.getTestMethod()
+        .orElseThrow()
+        .getName()
+        .equals("browserConsentUsesExactIdentityRouteWithoutGatewaySession")) {
+      application.registerBean(
+          com.ken.platform.gateway.bff.BffClientSettings.class,
+          () -> mock(com.ken.platform.gateway.bff.BffClientSettings.class));
+      application.registerBean(
+          "webSessionManager",
+          org.springframework.web.server.session.WebSessionManager.class,
+          () -> exchange -> Mono.error(new IllegalStateException("身份页面不能读取网关会话")));
+    }
     application.register(ConfigurationFixture.class);
     application.refresh();
     application
@@ -325,6 +340,25 @@ class GatewaySecurityTest {
     if (token != null) request.header("Authorization", "Bearer " + token);
     for (int i = 0; i < headers.length; i += 2) request.header(headers[i], headers[i + 1]);
     return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  @Test
+  void browserConsentUsesExactIdentityRouteWithoutGatewaySession() throws Exception {
+    var response =
+        get(
+            "/identity/consent?client_id=public-client&scope=profile&state=fixture",
+            null,
+            "Cookie",
+            "IDENTITY_SSO=fixture",
+            "X-User-Id",
+            "forged-user");
+    assertThat(response.statusCode()).isEqualTo(200);
+    var body = JSON.readTree(response.body());
+    assertThat(body.get("sso_cookie_preserved").asBoolean()).isTrue();
+    assertThat(body.get("forged_headers_absent").asBoolean()).isTrue();
+    assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+    assertThat(readers).isEmpty();
+    assertThat(get("/identity/not-published", null).statusCode()).isEqualTo(401);
   }
 
   @Test

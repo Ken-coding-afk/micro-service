@@ -40,7 +40,7 @@ public class LocalSwaggerCorsConfiguration {
                   var cors = new CorsConfiguration();
                   cors.setAllowedOrigins(List.of(origin));
                   cors.setAllowedMethods(List.of("POST", "OPTIONS"));
-                  cors.setAllowedHeaders(List.of("Content-Type", "Accept"));
+                  cors.setAllowedHeaders(List.of("Content-Type", "Accept", "X-Requested-With"));
                   cors.setAllowCredentials(false);
                   cors.setMaxAge(600L);
                   return cors;

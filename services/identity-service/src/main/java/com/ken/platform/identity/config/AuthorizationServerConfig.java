@@ -83,6 +83,7 @@ public class AuthorizationServerConfig {
       ProtocolAuthorizations authorizations,
       SecurityAuditRepository audits,
       PlatformTransactionManager manager,
+      AuthorizationServerSettings settings,
       ObjectProvider<PasswordLoginService> logins,
       ObjectProvider<LoginStore> sessions,
       ObjectProvider<com.ken.platform.identity.service.oauth.UserTokenService> userTokens,
@@ -104,6 +105,7 @@ public class AuthorizationServerConfig {
               .authorizationEndpoint(
                   endpoint ->
                       endpoint
+                          .consentPage(settings.getIssuer() + "/identity/consent")
                           .errorResponseHandler(new AuthorizationErrorHandler(audits, manager))
                           .authenticationProviders(
                               providers ->

@@ -1,5 +1,12 @@
 import importlib.util
 import json
+import os
+import re
+import subprocess
+import time
+import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
 
 import pytest
@@ -141,6 +148,64 @@ def test_compose_monitoring_is_optional_and_grafana_not_anonymous():
     assert "max_connections = 0" in ini
     dashboard = json.loads((ROOT / "infra/monitoring/services.json").read_text(encoding="utf-8"))
     assert all("or vector(0)" not in p["targets"][0]["expr"] for p in dashboard["panels"])
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.getenv("PLATFORM_TEST_GRAFANA_IMAGE"), reason="需显式提供本地 Grafana 测试镜像"
+)
+def test_real_grafana_preserves_csp_directives_and_fresh_html_nonce():
+    """用 Grafana 自身的 INI 解析和真实 HTML 检查分号及随机 nonce。"""
+    name = "qa-grafana-csp-" + uuid.uuid4().hex
+    container = None
+    try:
+        started = subprocess.run(
+            [
+                "docker", "run", "-d", "--name", name, "--label", f"qa.owner={name}",
+                "-p", "127.0.0.1::3000", "--mount",
+                f"type=bind,src={ROOT / 'infra/monitoring/grafana.ini'},dst=/etc/grafana/grafana.ini,readonly",
+                "-e", "GF_SERVER_ROOT_URL=http://localhost/bff/identity/platform/monitoring/",
+                "-e", "GF_SECURITY_ADMIN_PASSWORD=" + uuid.uuid4().hex,
+                os.environ["PLATFORM_TEST_GRAFANA_IMAGE"],
+            ],
+            capture_output=True, check=True, timeout=30,
+        )
+        container = started.stdout.decode().strip()
+        state = json.loads(subprocess.check_output(["docker", "inspect", container]))[0]
+        port = state["NetworkSettings"]["Ports"]["3000/tcp"][0]["HostPort"]
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/bff/identity/platform/monitoring/",
+            headers={"X-WEBAUTH-USER": name, "X-WEBAUTH-ROLE": "Viewer"},
+        )
+        deadline = time.monotonic() + 90
+        while True:
+            try:
+                response = opener.open(request, timeout=3)
+                break
+            except (OSError, urllib.error.URLError):
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(1)
+        with response:
+            policy = response.headers["Content-Security-Policy"]
+            html = response.read().decode()
+        assert "frame-ancestors 'self'" in policy
+        assert "object-src 'none'" in policy
+        assert "style-src 'self' 'unsafe-inline'" in policy
+        nonce = re.search(r"script-src 'self' 'nonce-([^']+)'", policy).group(1)
+        assert f'nonce="{nonce}"' in html
+        with opener.open(request, timeout=5) as second:
+            other = second.headers["Content-Security-Policy"]
+            assert nonce not in other
+            assert re.search(r"script-src 'self' 'nonce-([^']+)'", other)
+    finally:
+        if container:
+            state = json.loads(subprocess.check_output(["docker", "inspect", container]))[0]
+            assert state["Config"]["Labels"]["qa.owner"] == name
+            subprocess.run(
+                ["docker", "rm", "-f", container], check=True, capture_output=True, timeout=20
+            )
 
 
 def test_release_rejects_profile_drift_and_missing_exporters():

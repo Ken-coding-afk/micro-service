@@ -104,7 +104,8 @@ def test_bad_names_rejected(name):
         generation.validate_name(name)
 
 
-def test_current_bindings_preserve_privilege_and_secret_boundaries(workspace):
+@pytest.mark.parametrize("dev_host", ["host.docker.internal", "192.168.44.7", "127.0.0.1"])
+def test_current_bindings_preserve_privilege_and_secret_boundaries(workspace, dev_host):
     import init as local
     from catalog import database_resource
 
@@ -128,9 +129,13 @@ def test_current_bindings_preserve_privilege_and_secret_boundaries(workspace):
     for record in config["services"].values():
         resource = database_resource(workspace, record)["resource_id"]
         write(workspace / f".local/secrets/{resource}-runtime.password", "fixture-db")
-    local.bind_business(workspace, config, env, "host.docker.internal")
+    local.bind_business(workspace, config, env, dev_host)
     for name in config["services"]:
         values = local.env_values(runtime / f"{name}.env")
+        host_values = local.env_values(runtime / f"{name}-host.env")
+        assert set(host_values["NO_PROXY"].split(",")) == {"localhost", "127.0.0.1", dev_host}
+        assert "*" not in host_values["NO_PROXY"]
+        assert "NO_PROXY" not in values
         assert not any(k.startswith(("IDENTITY_", "REDIS_")) for k in values)
         assert values["DB_USER"].endswith("_runtime")
         assert {p.name for p in (runtime / f"{name}-secrets").iterdir()} == {
@@ -139,12 +144,12 @@ def test_current_bindings_preserve_privilege_and_secret_boundaries(workspace):
             "nacos-runtime.password",
         }
     before = {p: p.read_bytes() for p in runtime.rglob("*") if p.is_file()}
-    local.bind_business(workspace, config, env, "host.docker.internal")
+    local.bind_business(workspace, config, env, dev_host)
     assert {p: p.read_bytes() for p in runtime.rglob("*") if p.is_file()} == before
     secret = runtime / "equipment-service-secrets/introspection.password"
     secret.write_text("rotated", encoding="utf-8")
     with pytest.raises(ValueError, match="覆盖"):
-        local.bind_business(workspace, config, env, "host.docker.internal")
+        local.bind_business(workspace, config, env, dev_host)
     assert secret.read_text() == "rotated"
 
 
@@ -231,6 +236,20 @@ def test_external_local_init_preserves_supplied_environment(workspace, monkeypat
     assert host == "127.0.0.1"
 
 
+def test_initialization_offsets_optional_component_endpoints_and_ports(workspace, monkeypatch):
+    from init import env_values
+
+    monkeypatch.setattr("socket.getaddrinfo", lambda *args: [])
+    path, _ = prepare_environment(workspace, project_config(workspace), "127.0.0.1")
+    values = env_values(path)
+    assert values["RABBIT_PORT"] == values["RABBIT_PUBLISHED_PORT"] == "5872"
+    assert values["RABBIT_MGMT_PORT"] == values["RABBIT_MANAGEMENT_PUBLISHED_PORT"] == "15872"
+    assert values["GRAFANA_PUBLISHED_PORT"] == "13200"
+    before = path.read_bytes()
+    prepare_environment(workspace, project_config(workspace), "127.0.0.1")
+    assert path.read_bytes() == before
+
+
 def test_repeat_init_preserves_explicit_host(workspace, monkeypatch):
     write(workspace / ".local/dev-host.txt", "192.168.1.201")
     write(
@@ -242,6 +261,100 @@ def test_repeat_init_preserves_explicit_host(workspace, monkeypatch):
     assert prepare_environment(workspace, config, None)[1] == "192.168.1.201"
     with pytest.raises(ValueError, match="已固定"):
         prepare_environment(workspace, config, "192.168.1.202")
+
+
+@pytest.mark.parametrize("enabled,occupied,blocked", [
+    ("", 13200, False),  # Grafana 未启用。
+    ("", 5872, False),  # RabbitMQ 未启用。
+    ("", 48283, False),  # 未选的默认 Python 服务。
+    ("", 16579, False),  # external Redis 不占本机发布端口。
+    ("", 49501, True),  # 已选业务使用实际自定义端口，不再加 offset。
+    ("", 15632, True),  # 已选自建 PG。
+    ("COMPOSE_PROFILES=monitoring\n", 13200, True),
+    ("COMPOSE_PROFILES=monitoring\n", 50501, True),  # 实际业务指标端口。
+    ("RABBIT_HOST=127.0.0.1\n", 5872, True),
+])
+def test_initialization_checks_only_enabled_components_and_selected_actual_ports(
+    tmp_path, monkeypatch, enabled, occupied, blocked
+):
+    import init as local
+
+    write(tmp_path / "config/environments/local.env.example",
+          "PROJECT_CODE=fixture\nAPP_ENV=local\nPG_MODE=self_hosted\nREDIS_MODE=external\n"
+          "NACOS_MODE=external\nRABBIT_MODE=self_hosted\n" + enabled)
+    config = {"local": {"project": "fixture", "port_offset": 200},
+              "services": {"selected-service": {"port": 49501}}}
+    checked = []
+
+    class Probe:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def bind(self, address):
+            checked.append(address[1])
+            if address[1] == occupied:
+                raise OSError("fixture occupied port")
+
+    monkeypatch.setattr(local.socket, "socket", Probe)
+    monkeypatch.setattr(local.socket, "getaddrinfo", lambda *args: [])
+    if blocked:
+        with pytest.raises(ValueError, match=str(occupied)):
+            local.prepare_environment(tmp_path, config, "127.0.0.1")
+        assert not (tmp_path / ".local/environment.env").exists()
+    else:
+        local.prepare_environment(tmp_path, config, "127.0.0.1")
+        assert set(checked) == {18280, 18281, 15632, 49501}
+
+
+def test_gateway_publication_survives_interruption_and_failed_restart(tmp_path, monkeypatch):
+    import json
+    import init as local
+
+    # 已在 Nacos 发布，但初始化在迁移阶段失败；旧网关仍应用旧摘要。
+    applied = tmp_path / ".local/runtime/gateway-applied-config.json"
+    old = {"server/project/local/ns/api-gateway.yaml": "old"}
+    new = {"server/project/local/ns/api-gateway.yaml": "new"}
+    write(applied, json.dumps(old))
+    write(tmp_path / ".local/publish-state.json", json.dumps(new))
+    write(tmp_path / "config/nacos/api-gateway.yaml", "fixture: true")
+    import catalog
+    monkeypatch.setattr(catalog, "nacos_content", lambda root, path, selected: path.read_text())
+    monkeypatch.setattr(catalog, "nacos_files", lambda *args: [tmp_path / "config/nacos/api-gateway.yaml"])
+    monkeypatch.setattr(local, "tool", lambda *args: None)  # 重跑发布，远端摘要未再变化。
+    snapshot = local.publish_nacos(tmp_path, {"selected": []}, tmp_path / ".local/environment.env")
+    assert snapshot == new
+    calls = []
+    failures = [True]
+
+    def compose(root, *args):
+        calls.append(args)
+        if "--force-recreate" in args and failures[0]:
+            raise RuntimeError("fixture healthcheck failed")
+
+    monkeypatch.setattr(local, "compose", compose)
+    with pytest.raises(RuntimeError, match="healthcheck"):
+        local.start_gateway(tmp_path, snapshot)
+    assert json.loads(applied.read_text()) == old
+    failures[0] = False
+    local.start_gateway(tmp_path, snapshot)
+    assert json.loads(applied.read_text()) == new
+    assert sum("--force-recreate" in args for args in calls) == 2
+    local.start_gateway(tmp_path, snapshot)
+    assert sum("--force-recreate" in args for args in calls) == 2
+    assert calls[-1] == ("up", "-d", "--wait", "api-gateway", "nginx")
+
+
+def test_gateway_without_applied_record_restarts_once_and_rejects_missing_publication(tmp_path, monkeypatch):
+    import init as local
+
+    calls = []
+    monkeypatch.setattr(local, "compose", lambda root, *args: calls.append(args))
+    with pytest.raises(ValueError, match="摘要"):
+        local.start_gateway(tmp_path, {})
+    assert calls == []
+    snapshot = {"fixture/api-gateway.yaml": "known"}
+    local.start_gateway(tmp_path, snapshot)
+    local.start_gateway(tmp_path, snapshot)
+    assert sum("--force-recreate" in args for args in calls) == 1
 
 
 def test_new_service_selection_does_not_reset_existing_identity(workspace, monkeypatch):
@@ -504,9 +617,12 @@ def test_initialization_orders_config_identity_catalog_then_business_migration(
         local, "base_images", lambda *a: {"identity-service": "identity", "api-gateway": "gateway"}
     )
     monkeypatch.setattr(local, "build_service", lambda *a, **k: "sha256:" + "a" * 64)
-    monkeypatch.setattr(
-        local, "tool", lambda root, name, *args: events.append((name, *map(str, args)))
-    )
+    def tool(root, name, *args):
+        events.append((name, *map(str, args)))
+        if name == "scripts/config/publish.py":
+            write(root / ".local/publish-state.json", '{"fixture/api-gateway.yaml": "published"}')
+
+    monkeypatch.setattr(local, "tool", tool)
     monkeypatch.setattr(
         local,
         "migrate",

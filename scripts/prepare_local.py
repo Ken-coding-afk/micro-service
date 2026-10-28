@@ -226,7 +226,7 @@ def metrics_binding(language: str, port: int, enabled: bool, host: str = "0.0.0.
         "MANAGEMENT_SERVER_ADDRESS": host,
         "MANAGEMENT_SERVER_PORT": port + 1000,
         "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE": "health,prometheus",
-        "MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILES_HISTOGRAM_HTTP_SERVER_REQUESTS": "true",
+        "MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HTTP_SERVER_REQUESTS": "true",
     }
 
 

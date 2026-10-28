@@ -57,6 +57,23 @@ public class PlatformMetricsAutoConfiguration {
     org.springframework.security.web.server.SecurityWebFilterChain metricsReactiveSecurity(
         org.springframework.security.config.web.server.ServerHttpSecurity http, Environment env) {
       int port = metricsPort(env);
+      http.csrf(org.springframework.security.config.web.server.ServerHttpSecurity.CsrfSpec::disable)
+          .formLogin(
+              org.springframework.security.config.web.server.ServerHttpSecurity.FormLoginSpec
+                  ::disable)
+          .httpBasic(
+              org.springframework.security.config.web.server.ServerHttpSecurity.HttpBasicSpec
+                  ::disable)
+          .logout(
+              org.springframework.security.config.web.server.ServerHttpSecurity.LogoutSpec::disable)
+          .securityContextRepository(
+              org.springframework.security.web.server.context.NoOpServerSecurityContextRepository
+                  .getInstance())
+          .requestCache(
+              cache ->
+                  cache.requestCache(
+                      org.springframework.security.web.server.savedrequest.NoOpServerRequestCache
+                          .getInstance()));
       http.securityMatcher(
           exchange -> {
             var request = exchange.getRequest();

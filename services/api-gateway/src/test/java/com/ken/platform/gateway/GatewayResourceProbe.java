@@ -51,12 +51,6 @@ public final class GatewayResourceProbe {
     }
 
     @Bean
-    org.springframework.cloud.gateway.config.GatewayProperties gatewayProperties(
-        RuntimeParameters parameters) {
-      return RouteFixtures.properties(parameters);
-    }
-
-    @Bean
     ServiceDiscovery platformDiscovery(Environment environment) {
       var directory = new ServiceDiscovery(System::nanoTime);
       var target = URI.create(environment.getRequiredProperty("probe.identity-origin"));
@@ -131,8 +125,21 @@ public final class GatewayResourceProbe {
                       Map.entry(
                           "GATEWAY_INTROSPECTION_CLIENTS_SECRET_FILE",
                           binding.get("readers_file").asString()))));
+      application
+          .getEnvironment()
+          .getPropertySources()
+          .addFirst(
+              new MapPropertySource(
+                  "resource-live-native-routes",
+                  com.ken.platform.foundation.config.NativeComponentSettings.properties(
+                      new Fixture().platformParameters().spring())));
       application.register(Fixture.class);
       application.refresh();
+      if (!application
+          .getBean(com.ken.platform.gateway.security.GatewayRoutes.class)
+          .audiences()
+          .equals(java.util.Set.of("identity-service")))
+        throw new IllegalStateException("资源探针必须绑定真实原生路由与对应内省身份");
       Files.writeString(
           Path.of(binding.get("ready_file").asString()),
           json.writeValueAsString(

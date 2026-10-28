@@ -9,6 +9,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -82,30 +83,51 @@ def prepare_environment(root: Path, config: dict, dev_host: str | None) -> tuple
             f"宿主不能解析 {hostname}；用 --dev-host <本机私网IP> 明确双方可达地址，不自动修改 hosts"
         ) from error
     if not env_path.exists():
-        ports = [15432, 16379, 8848, 9848, 8080, 18080, 18081, 48082, 48083]
-        for port in ports:
-            try:
-                with socket.socket() as probe:
-                    probe.bind(("127.0.0.1", port + offset))
-            except OSError as error:
-                raise ValueError(
-                    f"本地端口 {port + offset} 已占用或不可绑定；初始化前调整 development.yaml 的 local.port_offset 和服务 port，或创建时选择另一 --port-offset"
-                ) from error
+        published_ports = load_tool("scripts/config/contract.py").PUBLISHED_PORTS
         values = env_values(root / "config/environments/local.env.example")
         values["PROJECT_CODE"] = config["local"]["project"]
         values["PUBLIC_ORIGIN"] = f"http://localhost:{18080 + offset}"
         values["NACOS_SERVER_ADDR"] = f"127.0.0.1:{8848 + offset}"
         values["NACOS_CONSOLE_ADDR"] = f"http://127.0.0.1:{8080 + offset}"
         for key, port in {
+            **published_ports,
             "PG_PORT": 15432,
-            "PG_PUBLISHED_PORT": 15432,
             "REDIS_PORT": 16379,
-            "REDIS_PUBLISHED_PORT": 16379,
-            "NACOS_PUBLISHED_PORT": 8848,
-            "NACOS_GRPC_PUBLISHED_PORT": 9848,
-            "NACOS_CONSOLE_PUBLISHED_PORT": 8080,
+            "RABBIT_PORT": 5672,
+            "RABBIT_MGMT_PORT": 15672,
         }.items():
             values[key] = port + offset
+        component_ports = {
+            "postgres": ("PG_PUBLISHED_PORT",),
+            "redis": ("REDIS_PUBLISHED_PORT",),
+            "nacos": (
+                "NACOS_PUBLISHED_PORT",
+                "NACOS_GRPC_PUBLISHED_PORT",
+                "NACOS_CONSOLE_PUBLISHED_PORT",
+            ),
+            "rabbitmq": ("RABBIT_PUBLISHED_PORT", "RABBIT_MANAGEMENT_PUBLISHED_PORT"),
+            "grafana": ("GRAFANA_PUBLISHED_PORT",),
+        }
+        components = load_tool("scripts/infra/up.py").selected_services(values)
+        ports = [18080 + offset, 18081 + offset]
+        ports.extend(
+            int(values[key]) for name in components for key in component_ports.get(name, ())
+        )
+        ports.extend(record["port"] for record in config["services"].values())
+        if "grafana" in components:
+            ports.extend(record["port"] + 1000 for record in config["services"].values())
+        if len(ports) != len(set(ports)) or any(not 1 <= port <= 65535 for port in ports):
+            raise ValueError(
+                "选中服务/组件的本地端口重复或越界，请核对 development.yaml 和启用组件"
+            )
+        for port in ports:
+            try:
+                with socket.socket() as probe:
+                    probe.bind(("127.0.0.1", port))
+            except OSError as error:
+                raise ValueError(
+                    f"本地端口 {port} 已占用或不可绑定；初始化前调整 development.yaml 的 local.port_offset 和服务 port，或创建时选择另一 --port-offset"
+                ) from error
         for kind in ("PUBLISH", "RUNTIME"):
             values[f"NACOS_{kind}_USER"] = (
                 config["local"]["project"]
@@ -316,6 +338,7 @@ def bind_business(root: Path, config: dict, env: dict, host: str, with_demo: boo
             "PG_PORT": env["PG_PORT"],
             "NACOS_SERVER_ADDR": env["NACOS_SERVER_ADDR"],
             "SERVICE_ADVERTISE_HOST": host,
+            "NO_PROXY": ",".join(sorted({"localhost", "127.0.0.1", host})),
         }
         host_values = {
             k: (str(folder / Path(v).name) if k.endswith("_SECRET_FILE") else v)
@@ -369,6 +392,50 @@ def bind_business(root: Path, config: dict, env: dict, host: str, with_demo: boo
         runtime / "business.compose.yaml",
         yaml.safe_dump(business_compose(config), sort_keys=False),
     )
+
+
+def publish_nacos(root: Path, config: dict, env_path: Path) -> dict[str, str]:
+    from catalog import nacos_content, nacos_files
+
+    state_path = env_path.resolve().parent / "publish-state.json"
+    local = root / ".local"
+    local.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="nacos-publish-", dir=local) as directory:
+        source = Path(directory).resolve()
+        if not source.is_relative_to(local.resolve()):
+            raise ValueError("临时配置视图越过项目运行目录")
+        for path in (root / "config/nacos").iterdir():
+            if path.is_file() and path.suffix in {".yaml", ".json"}:
+                write(source / path.name, nacos_content(root, path, config["selected"]))
+        tool(
+            root,
+            "scripts/config/publish.py",
+            "--env-file",
+            env_path,
+            "--source",
+            source,
+            *[
+                arg
+                for path in nacos_files(root, config["selected"])
+                for arg in ("--data-id", path.name)
+            ],
+        )
+    after = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    return {key: value for key, value in after.items() if key.endswith("/api-gateway.yaml")}
+
+
+def start_gateway(root: Path, published: dict[str, str]) -> None:
+    """发布成功不等于应用成功；迁移/重启失败后的重跑仍须加载新配置。"""
+    if not published:
+        raise ValueError("缺少已发布的网关配置摘要，拒绝标记为已应用")
+    path = root / ".local/runtime/gateway-applied-config.json"
+    applied = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if applied != published:
+        compose(root, "up", "-d", "--wait", "--force-recreate", "api-gateway")
+        temporary = path.with_suffix(".json.tmp")
+        write(temporary, json.dumps(published, sort_keys=True, indent=2))
+        temporary.replace(path)
+    compose(root, "up", "-d", "--wait", "api-gateway", "nginx")
 
 
 def initialize(root: Path, args) -> None:
@@ -444,21 +511,7 @@ def initialize(root: Path, args) -> None:
             "--resources",
             declaration,
         )
-    from catalog import nacos_files
-
-    tool(
-        root,
-        "scripts/config/publish.py",
-        "--env-file",
-        env_path,
-        "--source",
-        root / "config/nacos",
-        *[
-            arg
-            for path in nacos_files(root, config["selected"])
-            for arg in ("--data-id", path.name)
-        ],
-    )
+    gateway_config = publish_nacos(root, config, env_path)
     migrate(
         root,
         env_path,
@@ -581,7 +634,7 @@ def initialize(root: Path, args) -> None:
             migration_images.get(name),
             resources_prepared=True,
         )
-    compose(root, "up", "-d", "--wait", "api-gateway", "nginx")
+    start_gateway(root, gateway_config)
     if enabled and prepare.sync_local_monitoring_proxy(root, env_path):
         tool(root, "scripts/infra/up.py", "--env-file", env_path, "--service", "grafana")
     compose(

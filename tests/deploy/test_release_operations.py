@@ -235,6 +235,14 @@ def test_real_openssl_accepts_pair_and_rejects_wrong_hostname_or_key(tmp_path):
         tls.validate(tmp_path, "app.example.com")
 
 
+def test_openssl_zero_exit_without_hostname_match_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        tls, "openssl", lambda *a, **kw: b"Hostname other.example.com does NOT match certificate\n"
+    )
+    with pytest.raises(ValueError, match="域名不匹配"):
+        tls.validate(tmp_path, "other.example.com")
+
+
 def test_infra_only_selected_self_hosted_component_gets_its_secret(
     tmp_path, monkeypatch
 ):
@@ -323,16 +331,16 @@ def test_ansible_rollback_checks_current_receipt_inside_lock(tmp_path):
         encoding="utf-8",
     )
     # 使用实际 deploy.yaml 的锁内前置检查；不执行真实应用更新。
-    controller = yaml.safe_load((ROOT / "scripts/deploy/ansible/deploy.yaml").read_text())[1]
+    controller = yaml.safe_load((ROOT / "deploy/ansible/deploy.yaml").read_text())[1]
     play = tmp_path / "rollback-check.yaml"
     play.write_text(
         yaml.safe_dump(
             [
-                {"import_playbook": str(ROOT / "scripts/deploy/ansible/controller-start.yaml")},
+                {"import_playbook": str(ROOT / "deploy/ansible/controller-start.yaml")},
                 controller,
                 {
                     "import_playbook": str(
-                        ROOT / "scripts/deploy/ansible/controller-finish.yaml"
+                        ROOT / "deploy/ansible/controller-finish.yaml"
                     )
                 },
             ]
@@ -374,8 +382,8 @@ def test_ansible_failure_keeps_lock_and_stops_next_host(tmp_path):
         encoding="utf-8",
     )
     play = tmp_path / "verify.yaml"
-    start = ROOT / "scripts/deploy/ansible/controller-start.yaml"
-    finish = ROOT / "scripts/deploy/ansible/controller-finish.yaml"
+    start = ROOT / "deploy/ansible/controller-start.yaml"
+    finish = ROOT / "deploy/ansible/controller-finish.yaml"
     play.write_text(
         f"- import_playbook: {start}\n"
         "- hosts: apps\n  gather_facts: false\n  serial: 1\n"
@@ -478,7 +486,7 @@ def test_certificate_switch_restores_previous_reference_if_reload_fails(tmp_path
 )
 def test_real_nginx_tls_uses_validated_certificate_and_rejects_internal_route(tmp_path):
     certificate(tmp_path / "certificates/current", "app.example.com")
-    renderer = "from pathlib import Path;from jinja2 import Template;Path('/fixture/default.conf').write_text(Template(Path('/deploy/nginx/server.conf.j2').read_text()).render(edge_server_name='app.example.com',edge_gateway_upstreams=['127.0.0.1:18080']))"
+    renderer = "from pathlib import Path;from jinja2 import Template;Path('/fixture/default.conf').write_text(Template(Path('/framework/deploy/nginx/server.conf.j2').read_text()).render(edge_server_name='app.example.com',edge_gateway_upstreams=['127.0.0.1:18080']))"
     subprocess.run(
         [
             "docker",
@@ -569,6 +577,163 @@ def test_real_nginx_tls_uses_validated_certificate_and_rejects_internal_route(tm
         subprocess.run(
             ["docker", "rm", "-f", name], check=False, capture_output=True, timeout=15
         )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.getenv("PLATFORM_TEST_NGINX_IMAGE"), reason="需显式提供本地 Nginx 测试镜像"
+)
+@pytest.mark.parametrize("configuration", ["local", "tls", "acme"])
+def test_real_nginx_logs_hide_credentials_during_success_and_upstream_failure(
+    tmp_path, configuration
+):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import httpx
+
+    received = []
+
+    class Backend(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.reply()
+
+        def do_POST(self):
+            self.reply()
+
+        def reply(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            received.append((self.path, body))
+            payload = json.dumps({"path": self.path}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("0.0.0.0", 0), Backend)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    template = ROOT / "deploy/nginx"
+    tls_args = []
+    if configuration == "tls":
+        certificate(tmp_path / "certificates/current", "app.example.com")
+        renderer = (
+            "from pathlib import Path;from jinja2 import Template;"
+            "Path('/fixture/default.conf').write_text(Template("
+            "Path('/framework/deploy/nginx/server.conf.j2').read_text()).render("
+            "edge_server_name='app.example.com',edge_gateway_upstreams="
+            + repr([f"api-gateway:{server.server_port}"])
+            + "))"
+        )
+        subprocess.run(
+            ["docker", "run", "--rm", "--volume", f"{ROOT.resolve()}:/framework:ro",
+             "--volume", f"{tmp_path.resolve()}:/fixture",
+             "local/ken-ansible-check:2.19.3", "python", "-c", renderer],
+            check=True, capture_output=True, timeout=30,
+        )
+        content = (tmp_path / "default.conf").read_text(encoding="utf-8")
+        tls_args = [
+            "--volume",
+            f"{tmp_path.resolve()}/certificates:/etc/nginx/tls:ro",
+        ]
+    else:
+        content = (template / f"{configuration}.conf").read_text().replace(
+            "http://api-gateway:8080", f"http://api-gateway:{server.server_port}"
+        )
+    config = tmp_path / "default.conf"
+    config.write_text(content, encoding="utf-8")
+    label = uuid.uuid4().hex
+    name = "nginx-log-" + label[:12]
+    image = os.environ["PLATFORM_TEST_NGINX_IMAGE"]
+    port = 8443 if configuration == "tls" else 8080
+    identity = None
+    thread.start()
+    try:
+        started = subprocess.run(
+            [
+                "docker", "run", "-d", "--name", name,
+                "--label", "ken.test.nginx-logging=" + label,
+                "--add-host", "api-gateway:host-gateway",
+                "-p", f"127.0.0.1::{port}",
+                "--volume", f"{config.resolve()}:/etc/nginx/conf.d/default.conf:ro",
+                *tls_args, image,
+            ],
+            check=True, capture_output=True, timeout=30,
+        )
+        identity = started.stdout.decode().strip()
+        info = json.loads(subprocess.check_output(["docker", "inspect", identity]))[0]
+        assert info["Config"]["Labels"]["ken.test.nginx-logging"] == label
+        (tmp_path / "resource_ownership.json").write_text(
+            json.dumps({"container": identity, "name": name, "label": label})
+        )
+        published = int(info["NetworkSettings"]["Ports"][f"{port}/tcp"][0]["HostPort"])
+        origin = f"{'https' if configuration == 'tls' else 'http'}://127.0.0.1:{published}"
+        markers = {key: key + "-" + uuid.uuid4().hex for key in (
+            "code", "state", "hint", "access", "cookie", "referer", "refresh", "failed"
+        )}
+        request_id = 'log-"quoted\\id'
+        headers = {
+            "Host": "app.example.com", "X-Request-ID": request_id,
+            "Authorization": "Bearer " + markers["access"],
+            "Cookie": "session=" + markers["cookie"],
+            "Referer": "https://client.example/?code=" + markers["referer"],
+        }
+        # 主机名和证书真实性由已有 TLS 真测试验证，此处验证日志及代理行为。
+        with httpx.Client(trust_env=False, verify=False, timeout=10) as client:
+            deadline = time.monotonic() + 15
+            while True:
+                try:
+                    client.get(origin + "/internal/log-readiness", headers=headers)
+                    break
+                except httpx.TransportError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.1)
+            expected = 404 if configuration == "acme" else 200
+            paths = [
+                "/bff/web/callback?code=" + markers["code"] + "&state=" + markers["state"],
+                "/connect/logout?id_token_hint=" + markers["hint"],
+                "/api/items?access_token=" + markers["access"],
+            ]
+            for path in paths:
+                response = client.get(origin + path, headers=headers)
+                assert response.status_code == expected
+                if configuration != "acme":
+                    assert response.json()["path"] == path
+            payload = {"refresh_token": markers["refresh"]}
+            assert client.post(origin + "/oauth2/token", headers=headers, data=payload).status_code == expected
+            if configuration != "acme":
+                assert markers["refresh"].encode() in received[-1][1]
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+            failed_path = "/bff/web/callback?code=" + markers["failed"]
+            response = client.get(origin + failed_path, headers=headers)
+            assert response.status_code == (404 if configuration == "acme" else 502)
+        subprocess.run(["docker", "stop", identity], check=True, capture_output=True, timeout=20)
+        logs = subprocess.run(["docker", "logs", identity], check=True, capture_output=True, timeout=10)
+        output = (logs.stdout + logs.stderr).decode(errors="replace")
+        (tmp_path / "nginx.log").write_text(output, encoding="utf-8")
+        assert not any(value in output for value in markers.values())
+        entries = [json.loads(line) for line in output.splitlines() if line.startswith('{"time":')]
+        callbacks = [entry for entry in entries if entry["uri"] == "/bff/web/callback"]
+        assert len(callbacks) == 2
+        assert all(entry["request_id"] == request_id for entry in callbacks)
+        assert callbacks[-1]["status"] == (404 if configuration == "acme" else 502)
+        if configuration != "acme":
+            attempts = [value.strip() for value in callbacks[-1]["upstream_status"].split(",")]
+            assert attempts and set(attempts) == {"502"}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        if identity:
+            info = json.loads(subprocess.check_output(["docker", "inspect", identity]))[0]
+            assert info["Config"]["Labels"]["ken.test.nginx-logging"] == label
+            subprocess.run(["docker", "rm", "-f", identity], check=True, capture_output=True, timeout=15)
 
 
 def test_partial_failure_recovers_recorded_scope_without_faking_success(tmp_path):
@@ -674,7 +839,7 @@ def test_first_install_waits_for_all_hosts_before_public_smoke(tmp_path):
                 }
             )
         )
-        source = yaml.safe_load((ROOT / "scripts/deploy/ansible/deploy.yaml").read_text())
+        source = yaml.safe_load((ROOT / "deploy/ansible/deploy.yaml").read_text())
         app = next(
             p for p in source if p.get("hosts") == "apps" and p.get("serial") == 1
         )
@@ -730,9 +895,9 @@ def test_nginx_failed_smoke_keeps_backup_for_explicit_manual_restore(tmp_path):
     (edge / "candidate.conf").write_text(candidate)
     # 执行真实发布任务中的备份和开始凭据；模拟后续烟测失败。
     # nginx -t / TLS 的真实容器验证由独立用例覆盖，本用例验证人工恢复材料。
-    edge_tasks = yaml.safe_load((ROOT / "scripts/deploy/ansible/tasks/edge.yaml").read_text())
+    edge_tasks = yaml.safe_load((ROOT / "deploy/ansible/tasks/edge.yaml").read_text())
     update_tasks = yaml.safe_load(
-        (ROOT / "scripts/deploy/ansible/tasks/update-service.yaml").read_text()
+        (ROOT / "deploy/ansible/tasks/update-service.yaml").read_text()
     )
     backup = next(t for t in edge_tasks if t.get("register") == "edge_config_backup")
     record = next(
@@ -774,7 +939,9 @@ def test_nginx_failed_smoke_keeps_backup_for_explicit_manual_restore(tmp_path):
         timeout=45,
     )
     assert result.returncode != 0
-    evidence = json.loads((operations / "failed-nginx-nginx.json").read_text())
+    evidence_path = operations / "failed-nginx-nginx.json"
+    assert evidence_path.is_file(), (result.stdout + result.stderr).decode("utf-8", errors="replace")
+    evidence = json.loads(evidence_path.read_text())
     assert evidence["status"] == "started"
     assert evidence["previous_images"] == ["nginx@sha256:old"]
     assert Path(evidence["previous_config"]).read_text() == previous

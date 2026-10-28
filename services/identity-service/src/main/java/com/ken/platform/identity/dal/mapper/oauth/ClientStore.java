@@ -66,7 +66,7 @@ public class ClientStore {
 
   public java.util.List<String> localSwaggerRedirects() {
     return jdbc.queryForList(
-        "SELECT c.redirect_uris FROM oauth2_registered_client c JOIN sys_client_policy p ON p.registered_client_id=c.id WHERE c.client_id LIKE '%-swagger' AND c.client_authentication_methods='none' AND p.principal_type='USER' AND p.status='ACTIVE'",
+        "SELECT c.redirect_uris FROM oauth2_registered_client c JOIN sys_client_policy p ON p.registered_client_id=c.id WHERE c.client_id LIKE '%-swagger' AND c.client_authentication_methods='none' AND p.principal_type='user' AND p.status='ACTIVE'",
         String.class);
   }
 

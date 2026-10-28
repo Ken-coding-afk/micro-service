@@ -118,8 +118,6 @@ class SecurityPolicyManagementServiceTest {
         "policy-" + platform);
     jdbc.update(
         "INSERT INTO sys_tenant(id,code,name) VALUES(?,?,'策略租户')", tenant, "policy-" + tenant);
-    jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES('identity:security:manage','安全策略','identity-service','TENANT','identity','身份','security','安全策略','manage',ARRAY['TENANT'],'identity.security') ON CONFLICT DO NOTHING");
     data(
         () -> {
           jdbc.update(
@@ -136,13 +134,6 @@ class SecurityPolicyManagementServiceTest {
               tenant,
               user,
               role);
-          jdbc.update(
-              "INSERT INTO sys_role_permission(tenant_id,role_id,permission_code,data_scope) VALUES(?,?,'identity:security:manage','TENANT')",
-              tenant,
-              role);
-          jdbc.update(
-              "INSERT INTO sys_tenant_capability(tenant_id,capability,enabled) VALUES(?,'SECURITY_POLICY_MANAGEMENT',true)",
-              tenant);
           return null;
         });
   }

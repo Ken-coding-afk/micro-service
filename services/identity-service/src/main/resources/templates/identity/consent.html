@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>应用授权</title><link rel="stylesheet" href="/identity/admin/login-common.css"></head>
+<body><main>
+<h1>允许应用访问账号</h1>
+<p>应用：<strong th:text="${clientName}"></strong></p>
+<p>请核对应用及其请求的权限，再选择是否同意。</p>
+<form action="/oauth2/authorize" method="post">
+<input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+<input type="hidden" name="client_id" th:value="${clientId}">
+<input type="hidden" name="state" th:value="${state}">
+<fieldset><legend>本次请求的权限</legend>
+<label class="permission" th:each="scope:${scopes}"><input type="checkbox" name="scope" th:value="${scope}"><span th:text="${scope}"></span></label>
+</fieldset>
+<div th:unless="${approvedScopes.empty}"><p>此前已同意的权限：</p><ul><li th:each="scope:${approvedScopes}" th:text="${scope}"></li></ul><small>此处不会撤回已同意的权限，可在个人账号中管理应用授权。</small></div>
+<button type="submit" id="submit-consent">同意授权</button>
+</form>
+<form action="/oauth2/authorize" method="post" class="consent-deny">
+<input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+<input type="hidden" name="client_id" th:value="${clientId}">
+<input type="hidden" name="state" th:value="${state}">
+<button type="submit">拒绝</button>
+</form>
+</main></body></html>

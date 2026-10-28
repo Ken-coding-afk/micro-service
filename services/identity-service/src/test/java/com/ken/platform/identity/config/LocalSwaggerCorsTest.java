@@ -24,15 +24,35 @@ class LocalSwaggerCorsTest {
       var request = new MockHttpServletRequest("OPTIONS", "/oauth2/token");
       request.addHeader("Origin", origin);
       request.addHeader("Access-Control-Request-Method", "POST");
+      request.addHeader("Access-Control-Request-Headers", "content-type,x-requested-with");
       var response = new MockHttpServletResponse();
       registration.getFilter().doFilter(request, response, new MockFilterChain());
       if (origin.endsWith(":48083")) {
         assertThat(response.getHeader("Access-Control-Allow-Origin")).isEqualTo(origin);
         assertThat(response.getHeader("Access-Control-Allow-Credentials")).isNull();
+        assertThat(response.getHeader("Access-Control-Allow-Headers")).contains("x-requested-with");
       } else {
         assertThat(response.getStatus()).isEqualTo(403);
       }
     }
+  }
+
+  @Test
+  void registeredOriginCannotPreflightAuthorizationHeader() throws Exception {
+    var store = mock(ClientStore.class);
+    when(store.localSwaggerRedirects())
+        .thenReturn(List.of("http://localhost:48083/docs/oauth2-redirect"));
+    var request = new MockHttpServletRequest("OPTIONS", "/oauth2/token");
+    request.addHeader("Origin", "http://localhost:48083");
+    request.addHeader("Access-Control-Request-Method", "POST");
+    request.addHeader("Access-Control-Request-Headers", "authorization");
+    var response = new MockHttpServletResponse();
+    new LocalSwaggerCorsConfiguration()
+        .localSwaggerCors(store)
+        .getFilter()
+        .doFilter(request, response, new MockFilterChain());
+    assertThat(response.getStatus()).isEqualTo(403);
+    assertThat(response.getHeader("Access-Control-Allow-Origin")).isNull();
   }
 
   @Test

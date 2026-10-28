@@ -62,16 +62,22 @@ public class BrowserLoginConfiguration {
       SessionCleanup cleanup,
       TrustedClientAddress source,
       LoginFailures failures,
-      BrowserSessionGuard guard)
+      BrowserSessionGuard guard,
+      Environment environment,
+      com.ken.platform.identity.dal.mapper.oauth.ClientStore clients,
+      org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
+          authorizations)
       throws Exception {
     http.securityMatcher(
-        "/identity/login", "/identity/password/initial", "/identity/session", "/identity/logout");
+        "/identity/login",
+        "/identity/password/initial",
+        "/identity/session",
+        "/identity/logout",
+        "/identity/consent");
     http.headers(
         headers ->
-            headers.contentSecurityPolicy(
-                csp ->
-                    csp.policyDirectives(
-                        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")));
+            headers.addHeaderWriter(
+                new BrowserContentSecurityPolicy(environment, clients, authorizations)));
     http.authenticationProvider(new LoginAuthentication(service));
     http.authorizeHttpRequests(
         requests ->

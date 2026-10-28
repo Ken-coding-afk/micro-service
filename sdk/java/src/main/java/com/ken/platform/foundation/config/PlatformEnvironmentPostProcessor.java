@@ -99,6 +99,12 @@ public final class PlatformEnvironmentPostProcessor implements EnvironmentPostPr
                     settings.serviceName())));
     if (ClassUtils.isPresent("org.springframework.jdbc.core.JdbcTemplate", null))
       fixed.putAll(PlatformDatabaseSettings.from(environment).springProperties());
+    // 身份及入口的 Redis 用于登录保护、会话或共享限流，是已绑定时的必要依赖。
+    if (Set.of("identity-service", "api-gateway").contains(settings.serviceName())
+        && environment.getProperty("REDIS_HOST") != null) {
+      String group = "management.endpoint.health.group.readiness.include";
+      fixed.put(group, fixed.getOrDefault(group, "readinessState") + ",redis");
+    }
     boolean docs =
         "local".equals(values.get("APP_ENV"))
             && !Set.of("identity-service", "api-gateway").contains(settings.serviceName());

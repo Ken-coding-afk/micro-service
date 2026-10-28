@@ -24,7 +24,10 @@ def validate(root: Path, host: str) -> str:
         root.resolve()
     ) or not key.resolve().is_relative_to(root.resolve()):
         raise ValueError("current 必须引用证书父目录内版本")
-    openssl("x509", "-in", str(cert), "-noout", "-checkhost", host)
+    hostname = openssl("x509", "-in", str(cert), "-noout", "-checkhost", host)
+    # 部分 OpenSSL 版本在不匹配时仍返回 0，必须同时核对明确的成功结果。
+    if hostname.strip() != f"Hostname {host} does match certificate".encode("ascii"):
+        raise ValueError("证书域名不匹配")
     openssl("x509", "-in", str(cert), "-noout", "-checkend", str(7 * 86400))
     public = openssl("x509", "-in", str(cert), "-pubkey", "-noout")
     encoded = openssl("pkey", "-pubin", "-outform", "DER", data=public)

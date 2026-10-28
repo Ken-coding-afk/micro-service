@@ -46,6 +46,7 @@ import tools.jackson.databind.json.JsonMapper;
 class LoginLifecycleTest {
   private HikariDataSource pool;
   private JdbcTemplate jdbc;
+  private Integer originalFailureThreshold, originalIdleSeconds;
   private JdbcTransactionManager manager;
   private LoginRedisFixture redis;
   private LoginStore store;
@@ -87,6 +88,14 @@ class LoginLifecycleTest {
     config.setMaximumPoolSize(5);
     pool = new HikariDataSource(config);
     jdbc = new JdbcTemplate(pool);
+    originalFailureThreshold =
+        jdbc.queryForObject(
+            "SELECT login_failure_threshold FROM sys_security_policy WHERE owner_type='PLATFORM'",
+            Integer.class);
+    originalIdleSeconds =
+        jdbc.queryForObject(
+            "SELECT session_idle_seconds FROM sys_security_policy WHERE owner_type='PLATFORM'",
+            Integer.class);
     manager = new JdbcTransactionManager(pool);
     var mybatis = new Configuration();
     mybatis.getTypeHandlerRegistry().register(UUID.class, UuidTypeHandler.class);
@@ -137,7 +146,17 @@ class LoginLifecycleTest {
   void cleanup() {
     SecurityContextHolder.clearContext();
     if (redis != null) redis.close();
-    if (pool != null) pool.close();
+    if (pool != null) {
+      try {
+        if (originalFailureThreshold != null && originalIdleSeconds != null)
+          jdbc.update(
+              "UPDATE sys_security_policy SET login_failure_threshold=?,session_idle_seconds=?,version=version+1 WHERE owner_type='PLATFORM'",
+              originalFailureThreshold,
+              originalIdleSeconds);
+      } finally {
+        pool.close();
+      }
+    }
     // 会话/审计/Outbox 与其引用的随机账号留在隔离库中，运行身份没有删除历史的权限。
   }
 
@@ -762,11 +781,10 @@ class LoginLifecycleTest {
         "UPDATE sys_login_session SET created_at=now()-interval '100 seconds',last_activity_at=now()-interval '100 seconds' WHERE id=?",
         ordinary.sessionId());
     jdbc.update(
-        "INSERT INTO sys_security_policy(owner_type,owner_tenant_id,session_idle_seconds) VALUES('TENANT',?,60)",
-        a);
+        "UPDATE sys_security_policy SET session_idle_seconds=60,version=version+1 WHERE owner_type='PLATFORM'");
     rejected("INVALID_CREDENTIALS", 401, () -> service.requireBusinessSession());
     jdbc.update(
-        "UPDATE sys_security_policy SET session_idle_seconds=1800 WHERE owner_tenant_id=?", a);
+        "UPDATE sys_security_policy SET session_idle_seconds=1800,version=version+1 WHERE owner_type='PLATFORM'");
     rejected("INVALID_CREDENTIALS", 401, () -> service.requireBusinessSession());
     data(
         a,
@@ -898,8 +916,7 @@ class LoginLifecycleTest {
   @Test
   void nonexistentAccountHasSameThresholdAndLockAsIncorrectExistingCredentials() {
     jdbc.update(
-        "INSERT INTO sys_security_policy(owner_type,owner_tenant_id,login_failure_threshold) VALUES('TENANT',?,2)",
-        a);
+        "UPDATE sys_security_policy SET login_failure_threshold=2,version=version+1 WHERE owner_type='PLATFORM'");
     String missing = "missing-" + UUID.randomUUID();
     rejected(
         "INVALID_CREDENTIALS",

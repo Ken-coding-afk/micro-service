@@ -111,12 +111,6 @@ public final class GatewayBffProbe {
     }
 
     @Bean
-    org.springframework.cloud.gateway.config.GatewayProperties gatewayProperties(
-        RuntimeParameters parameters) {
-      return RouteFixtures.properties(parameters);
-    }
-
-    @Bean
     ServiceDiscovery platformDiscovery(Environment environment) {
       var directory = new ServiceDiscovery(System::nanoTime);
       confirm(directory, URI.create(environment.getRequiredProperty("probe.identity-origin")));
@@ -222,8 +216,21 @@ public final class GatewayBffProbe {
                       Map.entry(
                           "GATEWAY_INTROSPECTION_CLIENTS_SECRET_FILE",
                           binding.get("readers_file").asString()))));
+      application
+          .getEnvironment()
+          .getPropertySources()
+          .addFirst(
+              new MapPropertySource(
+                  "bff-live-native-routes",
+                  com.ken.platform.foundation.config.NativeComponentSettings.properties(
+                      new Fixture().platformParameters().spring())));
       application.register(Fixture.class);
       application.refresh();
+      if (!application
+          .getBean(com.ken.platform.gateway.security.GatewayRoutes.class)
+          .audiences()
+          .equals(java.util.Set.of("identity-service")))
+        throw new IllegalStateException("BFF 探针必须绑定真实原生路由与对应内省身份");
       var settings = application.getBean(BffClientSettings.class);
       for (var namespace : settings.namespaces())
         application

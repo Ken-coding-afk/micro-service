@@ -32,11 +32,12 @@ def test_business_execution_settings_are_not_framework_configuration(tmp_path, s
 
 
 @pytest.mark.parametrize("value", ["0", "65536", "abc", "-1"])
-def test_published_ports_are_validated(value):
+@pytest.mark.parametrize("key", ["PG_PUBLISHED_PORT", "GRAFANA_PUBLISHED_PORT"])
+def test_published_ports_are_validated(value, key):
     issues = contract.validate_env(
-        contract.EnvFile(valid_values() | {"PG_PUBLISHED_PORT": value})
+        contract.EnvFile(valid_values() | {key: value})
     )
-    assert any("PG_PUBLISHED_PORT" in x for x in issues)
+    assert any(key in x for x in issues)
 
 
 def test_nacos_mapped_ports_preserve_sdk_offset():
@@ -50,6 +51,7 @@ def test_nacos_mapped_ports_preserve_sdk_offset():
 
 
 @pytest.mark.skipif(not shutil.which("docker"), reason="需要 Docker Compose 配置解析")
+@pytest.mark.integration
 def test_two_projects_render_disjoint_resources_and_host_ports(tmp_path):
     compose = Path(__file__).resolve().parents[2] / "infra/compose.yaml"
     rendered = []

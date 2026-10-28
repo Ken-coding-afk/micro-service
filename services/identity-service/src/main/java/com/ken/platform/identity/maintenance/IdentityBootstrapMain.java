@@ -46,7 +46,10 @@ public final class IdentityBootstrapMain {
   private IdentityBootstrapMain() {}
 
   public static int run(Map<String, String> env, String[] args) {
-    try {
+    try (var ignored =
+        com.ken.platform.foundation.http.CallContexts.bind(
+            new com.ken.platform.foundation.http.CallContext(
+                UUID.randomUUID().toString(), null, null, null, null, null))) {
       if (args.length != 1
           || !Set.of(
                   "bootstrap",

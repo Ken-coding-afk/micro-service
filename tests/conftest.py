@@ -65,6 +65,25 @@ def pytest_addoption(parser):
         default=False,
         help="显式允许本目录测试初始化真实组件；默认不执行 Docker",
     )
+    parser.addoption(
+        "--keep-integration-resources",
+        action="store_true",
+        default=False,
+        help="停止迁移测试自建容器后保留本轮网络和卷供故障核对",
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "integration: 需要 --run-integration 显式允许 Docker")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--run-integration"):
+        return
+    skip = pytest.mark.skip(reason="真实集成未启用；使用 --run-integration 明确授权环境初始化")
+    for item in items:
+        if item.get_closest_marker("integration"):
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)

@@ -80,7 +80,10 @@ def test_first_run_creates_and_second_verifies(
     import subprocess
 
     logs = subprocess.run(
-        ["docker", "logs", f"{local_env['PROJECT_CODE']}-postgres"],
+        [
+            "docker", "compose", "--env-file", str(FRAMEWORK_ROOT / ".local/environment.env"),
+            "-f", str(FRAMEWORK_ROOT / "infra/compose.yaml"), "logs", "--no-color", "postgres",
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",

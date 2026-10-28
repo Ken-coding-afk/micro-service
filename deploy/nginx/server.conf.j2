@@ -1,3 +1,12 @@
+# 不记录查询、Referer、凭据头或请求体；原生 HTTP 错误日志可能携带完整请求 URI。
+log_format framework_safe escape=json
+    '{"time":"$time_iso8601","edge_request_id":"$request_id",'
+    '"request_id":"$http_x_request_id","method":"$request_method","uri":"$uri",'
+    '"status":$status,"bytes":$body_bytes_sent,"duration":$request_time,'
+    '"upstream_status":"$upstream_status","upstream_addr":"$upstream_addr",'
+    '"upstream_duration":"$upstream_response_time"}';
+error_log /dev/null;
+
 upstream application_gateway {
 {% for endpoint in edge_gateway_upstreams %}
     server {{ endpoint }};
@@ -5,6 +14,7 @@ upstream application_gateway {
     keepalive 32;
 }
 server {
+    access_log /dev/stdout framework_safe;
     listen 8080;
     server_name {{ edge_server_name }};
     server_tokens off;
@@ -15,6 +25,7 @@ server {
     location / { return 308 https://{{ edge_server_name }}$request_uri; }
 }
 server {
+    access_log /dev/stdout framework_safe;
     listen 8443 ssl;
     add_header Strict-Transport-Security "max-age=31536000" always;
     server_name {{ edge_server_name }};

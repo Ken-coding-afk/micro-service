@@ -1,7 +1,7 @@
 """T-11A 普通服务数据库迁移入口与恢复基础测试(实施计划 T-11A / AC-16 子场景)。
 
-全部用例使用真实 PostgreSQL 17.11 容器执行(端口隔离 15532/15533,容器名
-t11a-*);检测不到可用 Docker 时自动 skip 并写明原因。
+全部用例使用本轮唯一名称、动态端口的真实 PostgreSQL 17.11 容器。
+默认不探测或启动 Docker；显式 --run-integration 后组件不可用必须失败。
 
 覆盖场景:
 a. 双进程争锁:锁被持有时,另一进程取锁失败退出,不抢锁;
@@ -64,7 +64,7 @@ PG_IMAGE = "postgres:17.11"
 
 
 def _docker_available() -> tuple[bool, str]:
-    """导入期探测 Docker;不可用时整个模块 skip 并写明原因。"""
+    """仅在显式集成夹具中探测 Docker；不可用时必须报告失败。"""
     if shutil.which("docker") is None:
         return False, "未找到 docker 命令"
     try:
@@ -82,11 +82,7 @@ def _docker_available() -> tuple[bool, str]:
     return True, ""
 
 
-DOCKER_OK, DOCKER_REASON = _docker_available()
-pytestmark = pytest.mark.skipif(
-    not DOCKER_OK,
-    reason=f"本测试需要真实 Docker 与 PG 容器;跳过原因: {DOCKER_REASON or '未知'}",
-)
+pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
@@ -284,9 +280,18 @@ class PgEnv:
 
 
 @pytest.fixture(scope="session")
-def pg_env(tmp_path_factory: pytest.TempPathFactory) -> PgEnv:
+def pg_env(request, tmp_path_factory: pytest.TempPathFactory) -> PgEnv:
     """启动源 PG 容器 t11a-pg(15532,开启 WAL 归档供 pgBackRest 使用)。"""
-    # 防御性清理上次中断残留
+    if not request.config.getoption("--run-integration"):
+        pytest.skip("真实集成未启用；使用 --run-integration 明确授权环境初始化")
+    available, reason = _docker_available()
+    assert available, reason
+    write_evidence(
+        "resource_ownership",
+        json.dumps({"containers": [CONTAINER, CONTAINER2], "network": NETWORK,
+                    "volumes": list(VOLUMES), "ports": [PG_PORT, PG2_PORT]}, indent=2),
+    )
+    # 仅清理本轮唯一名称，不触碰历史测试资源。
     docker(["rm", "-f", CONTAINER, CONTAINER2])
     docker(["network", "rm", NETWORK])
     for volume in VOLUMES:
@@ -325,6 +330,13 @@ def pg_env(tmp_path_factory: pytest.TempPathFactory) -> PgEnv:
 
     yield PgEnv(super_password, tmp_path_factory.mktemp("secrets"))
 
+    cleanup_resources(request.config.getoption("--keep-integration-resources"))
+
+
+def cleanup_resources(keep: bool) -> None:
+    if keep:
+        docker(["stop", CONTAINER, CONTAINER2])
+        return
     docker(["rm", "-f", CONTAINER, CONTAINER2])
     docker(["network", "rm", NETWORK])
     for volume in VOLUMES:
@@ -697,7 +709,27 @@ def test_e_flyway_empty_and_incremental(pg_env: PgEnv, tmp_path: Path) -> None:
     assert row == ("legacy", None)
 
 
-def test_e_alembic_empty_and_incremental(pg_env: PgEnv, tmp_path: Path) -> None:
+@pytest.fixture(scope="session")
+def alembic_image(request) -> str:
+    if not request.config.getoption("--run-integration"):
+        pytest.skip("真实集成未启用；使用 --run-integration 明确授权环境初始化")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from build import build_service
+    from catalog import services
+
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, encoding="utf-8"
+    ).strip()
+    tag = f"local/qa-alembic-{RUN_ID}:test"
+    image = build_service(
+        ROOT, "sample-python-service", services(ROOT)["sample-python-service"], tag,
+        {"project_commit": revision, "dirty": True}, migration=True,
+    )
+    write_evidence("alembic_image", json.dumps({"tag": tag, "image": image, "source": revision}))
+    return image
+
+
+def test_e_alembic_empty_and_incremental(pg_env: PgEnv, tmp_path: Path, alembic_image: str) -> None:
     """alembic 入口:新库全量到 head;已应用 0001 的库增量到 0002。"""
     account = pg_env.alc
 
@@ -713,7 +745,7 @@ def test_e_alembic_empty_and_incremental(pg_env: PgEnv, tmp_path: Path) -> None:
         migrations_dir=fresh_dir,
         db_name=fresh_db,
         state_dir=state_dir,
-        extra=("--yes",),
+        extra=("--yes", "--migration-image", alembic_image),
     )
     assert applied.returncode == 0, f"{applied.stdout}\n{applied.stderr}"
     state = load_state(state_dir, "t11a_alc1")
@@ -745,7 +777,7 @@ def test_e_alembic_empty_and_incremental(pg_env: PgEnv, tmp_path: Path) -> None:
         migrations_dir=r1_dir,
         db_name=old_db,
         state_dir=state_dir2,
-        extra=("--yes",),
+        extra=("--yes", "--migration-image", alembic_image),
     )
     assert first.returncode == 0, f"{first.stdout}\n{first.stderr}"
     assert load_state(state_dir2, "t11a_alc2")["facts"]["version"] == "t11a0001"
@@ -765,7 +797,7 @@ def test_e_alembic_empty_and_incremental(pg_env: PgEnv, tmp_path: Path) -> None:
         migrations_dir=full_dir,
         db_name=old_db,
         state_dir=state_dir2,
-        extra=("--yes",),
+        extra=("--yes", "--migration-image", alembic_image),
     )
     assert second.returncode == 0, f"{second.stdout}\n{second.stderr}"
     with pg_env.connect(

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,8 +14,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import generation
 from add_service import add_service
-from catalog import nacos_files, project_config, services
-from common import write
+from catalog import nacos_content, nacos_files, project_config, services
+from common import load_tool, write
 from create_service import create_service
 from ide import install
 
@@ -132,6 +133,7 @@ def test_generated_ci_rejects_missing_service_and_missing_test(project):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            env={**os.environ, "PYTHONUTF8": "0", "PYTHONIOENCODING": "cp936"},
         )
 
     assert check().returncode == 0
@@ -352,3 +354,92 @@ def test_missing_ref_has_no_host_mutations(project, tmp_path):
     assert (project / "config/services.yaml").read_bytes() == before
     assert not (project / ".gitmodules").exists()
     assert not (project / "services/report-service").exists()
+
+
+@pytest.mark.parametrize("requested", ["equipment-service", "inspection-service", "all"])
+def test_selected_gateway_routes_match_provisioned_audiences(project, requested):
+    path = project / "config/nacos/api-gateway.yaml"
+    before = path.read_bytes()
+    config = project_config(project, requested)
+    content = nacos_content(project, path, config["selected"])
+    routes = yaml.safe_load(content)["spring"]["cloud"]["gateway"]["server"]["webflux"]["routes"]
+    assert {route["metadata"]["platform.audience"] for route in routes} == set(config["services"])
+    assert path.read_bytes() == before
+    if requested == "all":
+        assert content == path.read_text(encoding="utf-8")
+
+
+def test_selected_gateway_keeps_already_initialized_service(project):
+    path = project / "config/nacos/api-gateway.yaml"
+    write(project / ".local/runtime/api-gateway-secrets/readers.json", json.dumps({"readers": [
+        {"audience": "inspection-service", "client_id": "previous-reader", "secret_file": "/run/secrets/previous.password"}
+    ]}))
+    assert nacos_content(project, path, project_config(project, "equipment-service")["selected"]) == path.read_text(encoding="utf-8")
+
+
+def test_selected_gateway_preserves_custom_routes_and_shared_data_ids(project, monkeypatch):
+    path = project / "config/nacos/api-gateway.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    routes = document["spring"]["cloud"]["gateway"]["server"]["webflux"]["routes"]
+    routes.append({"id": "custom", "uri": "lb://custom-shared", "metadata": {"platform.audience": "custom-shared"}})
+    write(path, yaml.safe_dump(document, sort_keys=False))
+    write(project / "config/nacos/project-shared.yaml", "custom_flag: true\n")
+    before = {p.name: p.read_bytes() for p in (project / "config/nacos").iterdir() if p.is_file()}
+    captured = {}
+    tool = load_tool("scripts/init.py")
+    def publish(root, entry, *args):
+        assert root == project and entry == "scripts/config/publish.py"
+        view = Path(args[args.index("--source") + 1])
+        captured["path"] = view
+        selected = [args[i + 1] for i, value in enumerate(args) if value == "--data-id"]
+        assert "equipment-service.yaml" in selected and "inspection-service.yaml" not in selected
+        assert "project-shared.yaml" in selected
+        assert (view / "inspection-service.yaml").is_file()
+        rendered = yaml.safe_load((view / "api-gateway.yaml").read_text(encoding="utf-8"))
+        actual = rendered["spring"]["cloud"]["gateway"]["server"]["webflux"]["routes"]
+        assert {row["metadata"]["platform.audience"] for row in actual} == {"equipment-service", "custom-shared"}
+        assert (view / "project-shared.yaml").read_bytes() == before["project-shared.yaml"]
+    monkeypatch.setattr(tool, "tool", publish)
+    tool.publish_nacos(project, project_config(project, "equipment-service"), project / ".local/environment.env")
+    assert not captured["path"].exists()
+    assert before == {p.name: p.read_bytes() for p in (project / "config/nacos").iterdir() if p.is_file()}
+
+
+def test_selected_gateway_temporary_view_is_cleaned_after_publish_failure(project, monkeypatch):
+    tool = load_tool("scripts/init.py")
+    captured = {}
+    def fail(root, entry, *args):
+        captured["path"] = Path(args[args.index("--source") + 1])
+        raise RuntimeError("expected publication failure")
+    monkeypatch.setattr(tool, "tool", fail)
+    with pytest.raises(RuntimeError, match="expected publication failure"):
+        tool.publish_nacos(project, project_config(project, "inspection-service"), project / ".local/environment.env")
+    assert not captured["path"].exists()
+
+
+@pytest.mark.parametrize("before,after", [
+    ({}, {"server/project/local/ns/api-gateway.yaml": "new"}),
+    ({"server/project/local/ns/api-gateway.yaml": "same"}, {"server/project/local/ns/api-gateway.yaml": "same"}),
+    ({"server/project/local/ns/api-gateway.yaml": "old"}, {"server/project/local/ns/api-gateway.yaml": "new"}),
+    ({}, {"server/project/local/ns/equipment-service.yaml": "new"}),
+])
+def test_selected_gateway_returns_publication_snapshot_not_a_transient_changed_flag(project, monkeypatch, before, after):
+    tool = load_tool("scripts/init.py")
+    state = project / ".local/publish-state.json"
+    write(state, json.dumps(before))
+    def publish(root, entry, *args):
+        write(state, json.dumps(after))
+    monkeypatch.setattr(tool, "tool", publish)
+    assert tool.publish_nacos(project, project_config(project, "equipment-service"), project / ".local/environment.env") == {
+        key: value for key, value in after.items() if key.endswith("/api-gateway.yaml")
+    }
+
+
+def test_generated_ci_includes_security_and_monitoring_regressions(project):
+    for root in (project, Path(__file__).resolve().parents[2]):
+        workflow = yaml.safe_load((root / ".github/workflows/checks.yml").read_text(encoding="utf-8"))
+        java = {entry["module"]: set(entry["tests"].split(",")) for entry in workflow["jobs"]["java"]["strategy"]["matrix"]["include"]}
+        assert {"BrowserContentSecurityPolicyTest", "MonitoringMetricsBindingTest"} <= java["services/identity-service"]
+        assert "GatewayTokenPreflightFilterTest" in java["services/api-gateway"]
+        python = {entry["module"]: set(entry["tests"].split()) for entry in workflow["jobs"]["python"]["strategy"]["matrix"]["include"]}
+        assert "sdk/python/tests/test_access_logging.py" in python["sdk/python"]

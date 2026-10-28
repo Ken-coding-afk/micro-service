@@ -1,5 +1,5 @@
 // 真实平台管理浏览器流程。日志只输出阶段，不输出凭据或原始异常。
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import assert from 'node:assert/strict'
@@ -150,14 +150,9 @@ try {
   await page.getByLabel('状态', { exact: true }).selectOption('DISABLED')
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
   await page.getByRole('status').filter({ hasText: '平台管理员已更新' }).waitFor()
-  assert.equal(
-    await page
-      .getByRole('row')
-      .filter({ hasText: admin })
-      .getByText('停用', { exact: true })
-      .count(),
-    1,
-  )
+  await expect(
+    page.getByRole('row').filter({ hasText: admin }).getByText('停用', { exact: true }),
+  ).toHaveCount(1)
   phase = 'logout'
   await page.getByRole('button', { name: '退出本应用', exact: true }).click()
   await page.getByRole('heading', { name: '账号登录', exact: true }).waitFor()
@@ -188,6 +183,9 @@ try {
       ok: false,
       phase,
       error_type: failure?.name === 'TimeoutError' ? 'TIMEOUT' : 'ASSERTION_OR_DEPENDENCY',
+      ...(typeof failure?.actual === 'number' && typeof failure?.expected === 'number'
+        ? { actual: failure.actual, expected: failure.expected }
+        : {}),
     }) + '\n',
   )
   process.exitCode = 1

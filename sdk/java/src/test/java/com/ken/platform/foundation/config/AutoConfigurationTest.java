@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.*;
 
 import com.ken.platform.foundation.discovery.ServiceDiscovery;
 import com.ken.platform.foundation.http.ServiceHttpClient;
+import java.io.IOException;
+import java.net.URL;
+import java.util.Collections;
+import java.util.Enumeration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
@@ -42,13 +46,32 @@ class AutoConfigurationTest {
                 "jakarta.servlet",
                 "org.springframework.jdbc",
                 "com.baomidou",
-                "org.springframework.security"))
+                "org.springframework.security") {
+              @Override
+              public Enumeration<URL> getResources(String name) throws IOException {
+                var resources = super.getResources(name);
+                if (!name.equals("META-INF/services/io.micrometer.context.ThreadLocalAccessor"))
+                  return resources;
+                // 模拟移除整个可选依赖：不能只隐藏类，却留下其 SPI 注册文件。
+                return Collections.enumeration(
+                    Collections.list(resources).stream()
+                        .filter(resource -> !resource.toString().contains("spring-security-"))
+                        .toList());
+              }
+            })
         .run(
             application -> {
               assertThat(application)
                   .hasNotFailed()
                   .hasSingleBean(ServiceDiscovery.class)
                   .hasSingleBean(ServiceHttpClient.class);
+              assertThatThrownBy(
+                      () ->
+                          application
+                              .getClassLoader()
+                              .loadClass(
+                                  "org.springframework.security.core.context.SecurityContextHolder"))
+                  .isInstanceOf(ClassNotFoundException.class);
             });
   }
 

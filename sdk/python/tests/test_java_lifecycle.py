@@ -19,7 +19,7 @@ from ken_platform_sdk.nacos import NacosProvider
 )
 async def test_real_java_ready_registration_and_graceful_shutdown(tmp_path):
     source = Path(os.environ["PLATFORM_TEST_ENV_FILE"]).resolve()
-    root = source.parent.parent
+    root = Path(__file__).resolve().parents[3]
     values = dict(
         line.split("=", 1)
         for line in source.read_text(encoding="utf-8").splitlines()
@@ -53,6 +53,19 @@ async def test_real_java_ready_registration_and_graceful_shutdown(tmp_path):
         if field.startswith(("nacos_", "service_")) and field != "nacos_log_dir":
             environment[field.upper()] = str(value)
     environment.update(PROJECT_CODE=settings.project_code, APP_ENV="local")
+    redis_secret = tmp_path / "redis.password"
+    redis_secret.write_text(
+        Path(values["REDIS_PASSWORD_SECRET_FILE"]).read_text(encoding="utf-8")
+        if values.get("REDIS_PASSWORD_SECRET_FILE")
+        else values["REDIS_PASSWORD"],
+        encoding="utf-8",
+    )
+    environment.update(
+        REDIS_HOST=values["REDIS_HOST"],
+        REDIS_PORT=values["REDIS_PORT"],
+        REDIS_PASSWORD_SECRET_FILE=str(redis_secret),
+        PUBLIC_ORIGIN=f"http://localhost:{port}",
+    )
     jar = root / "services/api-gateway/target/api-gateway.jar"
     classes = root / "services/api-gateway/target/test-classes"
     probe = classes / "com/ken/platform/gateway/GatewayLifecycleProbe.class"

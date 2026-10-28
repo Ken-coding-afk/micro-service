@@ -726,6 +726,7 @@ class AccountCreationServiceTest {
             () ->
                 jdbc.queryForList(
                     "SELECT role_id,permission_code,data_scope FROM sys_role_permission ORDER BY role_id,permission_code"));
+    var catalogBefore = catalogMapper.all();
     var result = catalog.install();
     assertThat(result.catalogVersion()).isEqualTo(version);
     assertThat(result.changedCodes()).isEmpty();
@@ -738,10 +739,14 @@ class AccountCreationServiceTest {
                     jdbc.queryForList(
                         "SELECT role_id,permission_code,data_scope FROM sys_role_permission ORDER BY role_id,permission_code")))
         .isEqualTo(beforeRoles);
-    assertThat(
-            catalogMapper.all().stream()
-                .filter(row -> row.ownerService().equals("identity-service")))
-        .hasSize(24)
+    var catalogAfter = catalogMapper.all();
+    assertThat(catalogAfter).isEqualTo(catalogBefore);
+    var builtinCodes =
+        BuiltinPermissionCatalog.entries().stream()
+            .map(row -> row.code())
+            .collect(java.util.stream.Collectors.toSet());
+    assertThat(catalogAfter.stream().filter(row -> builtinCodes.contains(row.code())))
+        .hasSize(25)
         .containsAll(BuiltinPermissionCatalog.entries());
     assertThat(
             jdbc.queryForObject(

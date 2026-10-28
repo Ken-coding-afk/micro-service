@@ -15,6 +15,12 @@ class EnvironmentBindingTest {
   @PlatformService("analysis-service")
   static class ServiceFixture {}
 
+  @PlatformService("identity-service")
+  static class IdentityFixture {}
+
+  @PlatformService("api-gateway")
+  static class GatewayFixture {}
+
   @TempDir Path temporary;
 
   private StandardEnvironment environment() throws Exception {
@@ -120,6 +126,52 @@ class EnvironmentBindingTest {
       new PlatformEnvironmentPostProcessor()
           .postProcessEnvironment(environment, new SpringApplication(ServiceFixture.class));
       assertThat(environment.getProperty("spring.datasource.url")).isNull();
+    } finally {
+      Thread.currentThread().setContextClassLoader(previous);
+    }
+  }
+
+  @Test
+  void identityReadinessIncludesItsRequiredRedisWithoutChangingBusinessOrLiveness()
+      throws Exception {
+    for (var fixture : new Class<?>[] {ServiceFixture.class, IdentityFixture.class}) {
+      var environment = environment();
+      String service = fixture.getAnnotation(PlatformService.class).value();
+      environment
+          .getPropertySources()
+          .addFirst(
+              new MapPropertySource(
+                  "service", Map.of("SERVICE_NAME", service, "REDIS_HOST", "redis")));
+      new PlatformEnvironmentPostProcessor()
+          .postProcessEnvironment(environment, new SpringApplication(fixture));
+      assertThat(environment.getProperty("management.endpoint.health.group.readiness.include"))
+          .isEqualTo(
+              fixture == IdentityFixture.class ? "readinessState,db,redis" : "readinessState,db");
+      assertThat(environment.getProperty("management.endpoint.health.group.liveness.include"))
+          .isNull();
+    }
+  }
+
+  @Test
+  void gatewayReadinessOnlyRequiresRedisWhenBoundAndDoesNotRequireJdbc() throws Exception {
+    var previous = Thread.currentThread().getContextClassLoader();
+    try (var loader =
+        new org.springframework.boot.test.context.FilteredClassLoader("org.springframework.jdbc")) {
+      Thread.currentThread().setContextClassLoader(loader);
+      for (boolean redis : new boolean[] {false, true}) {
+        var environment = environment();
+        var bindings = new java.util.HashMap<String, Object>();
+        bindings.put("SERVICE_NAME", "api-gateway");
+        if (redis) bindings.put("REDIS_HOST", "redis");
+        environment.getPropertySources().addFirst(new MapPropertySource("service", bindings));
+        new PlatformEnvironmentPostProcessor()
+            .postProcessEnvironment(environment, new SpringApplication(GatewayFixture.class));
+        assertThat(environment.getProperty("management.endpoint.health.group.readiness.include"))
+            .isEqualTo(redis ? "readinessState,redis" : null);
+        assertThat(environment.getProperty("spring.datasource.url")).isNull();
+        assertThat(environment.getProperty("management.endpoint.health.group.liveness.include"))
+            .isNull();
+      }
     } finally {
       Thread.currentThread().setContextClassLoader(previous);
     }

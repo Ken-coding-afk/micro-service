@@ -220,7 +220,7 @@ async def test_packaged_identity_http_registration_and_graceful_shutdown(tmp_pat
                 assert "jdbc:postgresql" not in response.text
                 response = await http.get("/identity/session")
                 assert response.status_code == 302
-                assert response.headers["location"] == origin + "/identity/login"
+                assert response.headers["location"] == "/identity/login"
             assert process.stdin is not None
             process.stdin.write(b"\n")
             await process.stdin.drain()

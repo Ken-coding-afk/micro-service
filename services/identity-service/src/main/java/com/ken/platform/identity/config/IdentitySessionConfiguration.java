@@ -14,6 +14,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.security.jackson.SecurityJacksonModules;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.session.config.annotation.web.http.EnableSpringHttpSession;
+import org.springframework.session.data.redis.RedisSessionMapper;
 import org.springframework.session.data.redis.RedisSessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.DefaultCookieSerializer;
@@ -57,6 +58,17 @@ public class IdentitySessionConfiguration {
     var repository = new RedisSessionRepository(template);
     repository.setRedisKeyNamespace(project + ":" + app + ":identity-service:global:sso");
     repository.setDefaultMaxInactiveInterval(Duration.ofMinutes(30));
+    var mapper = new RedisSessionMapper();
+    repository.setRedisSessionMapper(
+        (sessionId, attributes) -> {
+          try {
+            return mapper.apply(sessionId, attributes);
+          } catch (IllegalStateException incomplete) {
+            // 删除/过期与迟到 HSET 竞争可能只留下部分字段；无效记录不能恢复为登录会话。
+            repository.deleteById(sessionId);
+            return null;
+          }
+        });
     return repository;
   }
 
@@ -77,6 +89,7 @@ public class IdentitySessionConfiguration {
         "/identity/login",
         "/identity/password/initial",
         "/identity/session",
+        "/identity/consent",
         "/identity/logout",
         "/identity/external",
         "/identity/external/*",
