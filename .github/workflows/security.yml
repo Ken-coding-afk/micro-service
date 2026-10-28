@@ -79,7 +79,7 @@ jobs:
 
         ./mvnw -B -DskipTests install
 
-        ./mvnw -B org.owasp:dependency-check-maven:12.1.0:aggregate -DfailBuildOnCVSS=7 -Dformats=JSON,HTML -DnvdDatafeedUrl=https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache/nvdcve-{0}.json.gz'
+        ./mvnw -B org.owasp:dependency-check-maven:12.1.0:aggregate -DfailBuildOnCVSS=7 -Dformats=JSON,HTML -DossindexAnalyzerEnabled=false -DnvdDatafeedUrl=https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache/nvdcve-{0}.json.gz'
       if: steps.scope.outputs.needed == 'true'
     - run: "for directory in . sdk/python services/*; do\n  if [ -f \"$directory/pyproject.toml\" ]; then\n    uv\
         \ export --frozen --all-extras --project \"$directory\" --format requirements-txt --no-emit-local > /tmp/audit-requirements.txt\n\
