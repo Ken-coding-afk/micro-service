@@ -31,10 +31,11 @@
   </suppress>
   <suppress>
     <notes><![CDATA[
-      simpleclient 是 Java 指标采集客户端，不实现 Prometheus Go 服务端的 /api/v1/read。
+      simpleclient 及其 tracer_common、tracer_otel、tracer_otel_agent 是 Java 指标/追踪客户端，
+      不实现 Prometheus Go 服务端的 /api/v1/read。仅列举报告合并呈现的四个 0.16.0 包。
       https://github.com/prometheus/prometheus/security/advisories/GHSA-8rm2-7qqf-34qm
     ]]></notes>
-    <packageUrl>pkg:maven/io.prometheus/simpleclient@0.16.0</packageUrl>
+    <packageUrl regex="true">^pkg:maven/io\.prometheus/(simpleclient|simpleclient_tracer_common|simpleclient_tracer_otel|simpleclient_tracer_otel_agent)@0\.16\.0$</packageUrl>
     <cve>CVE-2026-42154</cve>
   </suppress>
 </suppressions>
