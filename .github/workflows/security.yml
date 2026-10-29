@@ -40,7 +40,7 @@ jobs:
         EVENT_NAME: ${{ github.event_name }}
       run: "if [[ \"$EVENT_NAME\" == \"schedule\" || \"$EVENT_NAME\" == \"workflow_dispatch\" || ! \"$BASE_REV\"\
         \ =~ ^[0-9a-f]{40}$ || \"$BASE_REV\" == \"0000000000000000000000000000000000000000\" ]]; then\n  echo \"\
-        needed=true\" >> \"$GITHUB_OUTPUT\"\nelse\n  git diff --name-only \"$BASE_REV\" \"$HEAD_REV\" | python3\
+        needed=true\" >> \"$GITHUB_OUTPUT\"\nelse\n  git -c core.quotepath=false diff --name-only \"$BASE_REV\" \"$HEAD_REV\" | python3\
         \ -c 'import sys; paths=sys.stdin.read().splitlines(); print(\"needed=\" + str(any(not (p.endswith(\".md\"\
         ) or p.startswith((\"docs/\", \".cursor/\", \".codegraph/\"))) for p in paths)).lower())' >> \"$GITHUB_OUTPUT\"\
         \nfi"
