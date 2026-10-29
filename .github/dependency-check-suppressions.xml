@@ -38,4 +38,32 @@
     <packageUrl regex="true">^pkg:maven/io\.prometheus/(simpleclient|simpleclient_tracer_common|simpleclient_tracer_otel|simpleclient_tracer_otel_agent)@0\.16\.0$</packageUrl>
     <cve>CVE-2026-42154</cve>
   </suppress>
+  <suppress until="2026-11-29Z">
+    <notes><![CDATA[
+      Swagger UI 5.34.0 的精确 swagger-ui-bundle.js；这是配置适用性例外，不是依赖已修复。
+      Markdown 仅接收字符串，sanitizer 只设置 ADD_ATTR/FORBID_TAGS/ALLOW_DATA_ATTR/FORBID_ATTR，
+      未启用 IN_PLACE 或 SAFE_FOR_TEMPLATES/DOM 返回模式；hook 只设置 rel，不移除节点。
+      两项公告的必要触发条件不成立。SwaggerUiResourceTest 固定真实资源哈希及调用选项。
+      限期复核上游 WebJar，资源变化后本规则自动失配；不排除其他 DOMPurify 漏洞。
+      https://github.com/swagger-api/swagger-ui/blob/v5.34.0/src/core/components/providers/markdown.jsx
+      https://github.com/cure53/DOMPurify/security/advisories/GHSA-mrv2-3pqr-j5jr
+      https://github.com/cure53/DOMPurify/security/advisories/GHSA-cg2g-xh64-v4q7
+    ]]></notes>
+    <sha1>e8ec45d876a2164779f4d3747fa84451b09517ec</sha1>
+    <vulnerabilityName>CVE-2026-116803</vulnerabilityName>
+    <vulnerabilityName>CVE-2026-116804</vulnerabilityName>
+  </suppress>
+  <suppress until="2026-11-29Z">
+    <notes><![CDATA[
+      Swagger UI 5.34.0 的精确 swagger-ui-es-bundle.js；sanitizer 与普通 bundle 相同，
+      仅字符串输入，未启用两项公告要求的 IN_PLACE 或 SAFE_FOR_TEMPLATES/DOM 返回模式。
+      SwaggerUiResourceTest 检查此资源哈希和实际调用选项；这是有期限的适用性例外。
+      https://github.com/swagger-api/swagger-ui/blob/v5.34.0/src/core/components/providers/markdown.jsx
+      https://github.com/cure53/DOMPurify/security/advisories/GHSA-mrv2-3pqr-j5jr
+      https://github.com/cure53/DOMPurify/security/advisories/GHSA-cg2g-xh64-v4q7
+    ]]></notes>
+    <sha1>a150f3495b6837ee7695cc4bdd11eb1eb76caa67</sha1>
+    <vulnerabilityName>CVE-2026-116803</vulnerabilityName>
+    <vulnerabilityName>CVE-2026-116804</vulnerabilityName>
+  </suppress>
 </suppressions>

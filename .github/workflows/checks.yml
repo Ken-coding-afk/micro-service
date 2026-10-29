@@ -107,11 +107,11 @@ jobs:
         - module: sdk/java
           tests: OutboundCallBudgetTest,ApiErrorsTest,DeveloperContextTest,EnvironmentBindingTest,TypedServiceCallTest,ServiceCallContractTest,CurrentPrincipalTest,NativeComponentSettingsTest,PlatformMetricsAutoConfigurationTest
         - module: services/identity-service
-          tests: ManagementInputBoundaryTest,IdentityApiResponsesTest,PasswordCredentialsTest,AuditDetailSanitizerTest,MonitoringScopeUpgradeTest,ManagementAuditsTest,BrowserContentSecurityPolicyTest,MonitoringMetricsBindingTest
+          tests: ManagementInputBoundaryTest,OwnAccountServiceTest,IdentityApiResponsesTest,PasswordCredentialsTest,AuditDetailSanitizerTest,MonitoringScopeUpgradeTest,ManagementAuditsTest,BrowserContentSecurityPolicyTest,MonitoringMetricsBindingTest
         - module: services/api-gateway
           tests: BffRelayTest,BffClientSettingsTest,BffMonitoringTest,BffIdentityClientTest,GatewayTokenPreflightFilterTest
         - module: services/sample-java-service
-          tests: ItemDeadlineTest,ItemControllerTest,SwaggerUiResourceTest
+          tests: ItemDeadlineTest,ItemControllerTest,ItemServiceTest,SwaggerUiResourceTest
   python:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

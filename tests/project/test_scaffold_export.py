@@ -510,6 +510,9 @@ def test_generated_ci_includes_security_and_monitoring_regressions(project):
             "services/identity-service"
         ]
         assert "GatewayTokenPreflightFilterTest" in java["services/api-gateway"]
+        assert "OwnAccountServiceTest" in java["services/identity-service"]
+        sample = "services/equipment-service" if root == project else "services/sample-java-service"
+        assert {"ItemServiceTest", "SwaggerUiResourceTest"} <= java[sample]
         python = {
             entry["module"]: set(entry["tests"].split())
             for entry in workflow["jobs"]["python"]["strategy"]["matrix"]["include"]
