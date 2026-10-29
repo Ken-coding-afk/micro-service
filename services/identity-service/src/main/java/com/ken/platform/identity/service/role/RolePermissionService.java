@@ -88,22 +88,23 @@ public final class RolePermissionService {
       proposed.put(grant.permissionCode(), grant.dataScope());
     }
     UUID actor = authorization.actorFor(OPERATION);
-    return transactions.execute(
+    return authorization.execute(
+        transactions,
         () -> {
           var context = CallContexts.current();
-          UUID tenant = context.tenantId();
-          long catalogVersion = users.lockCatalog();
-          var tenantRow = users.lockTenant(tenant);
+          UUID tenant = authorization.tenantId();
+          long catalogVersion = authorization.lockCatalog();
+          var tenantRow = authorization.lockTenant(tenant);
           if (tenantRow == null
               || !tenantRow.status().equals("ACTIVE")
               || tenantRow.expiresAt() != null
                   && !clock.instant().isBefore(tenantRow.expiresAt())) {
             throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
           }
-          var lockedIds = new HashSet<>(roles.memberRoles(tenant, actor));
+          var lockedIds = new HashSet<>(authorization.actorRoles(tenant, actor, roles));
           lockedIds.add(roleId);
           var lockedRoles = roles.lockRoles(tenant, List.copyOf(lockedIds));
-          var lockedUsers = users.lockUsers(tenant, List.of(actor));
+          var lockedUsers = authorization.lockUsers(tenant, authorization.userIds(actor, null));
           authorization.requireProtectedAdministrator(tenant, actor, OPERATION, lockedUsers);
           var role =
               lockedRoles.stream()
@@ -172,6 +173,7 @@ public final class RolePermissionService {
           }
           roles.audit(
               actor,
+              authorization.actorType(),
               tenant,
               roleId.toString(),
               context.requestId(),

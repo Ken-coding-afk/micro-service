@@ -171,6 +171,7 @@ public final class SessionManagementService {
   private void audit(Access access, String action, UUID target, int count) {
     queries.audit(
         access.actor(),
+        authorization.actorType(),
         access.tenant(),
         action,
         target.toString(),
@@ -183,7 +184,7 @@ public final class SessionManagementService {
     var row = id == null ? null : sessions.session(id, lock);
     if (row == null
         || row.realm() != LoginRealm.TENANT
-        || !row.tenant().equals(CallContexts.current().tenantId())) throw missing();
+        || !row.tenant().equals(authorization.tenantId())) throw missing();
     return row;
   }
 
@@ -198,22 +199,20 @@ public final class SessionManagementService {
         targetId,
         () -> {
           UUID actor = authorization.actorFor(operation);
-          return transactions.execute(
+          return authorization.execute(
+              transactions,
               () -> {
-                UUID tenant = CallContexts.current().tenantId();
-                users.lockCatalog();
-                var row = users.lockTenant(tenant);
+                UUID tenant = authorization.tenantId();
+                authorization.lockCatalog();
+                var row = authorization.lockTenant(tenant);
                 if (row == null
                     || !row.status().equals("ACTIVE")
                     || row.expiresAt() != null && !clock.instant().isBefore(row.expiresAt()))
                   throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
                 UUID selected = target.get();
-                var ids =
-                    selected == null || selected.equals(actor)
-                        ? List.of(actor)
-                        : List.of(actor, selected);
-                users.lockMemberRoles(tenant, ids);
-                var accounts = users.lockUsers(tenant, ids);
+                var ids = authorization.userIds(actor, selected);
+                authorization.lockMemberRoles(tenant, ids);
+                var accounts = authorization.lockUsers(tenant, ids);
                 authorization.requireProtectedAdministrator(tenant, actor, operation, accounts);
                 UserManagementMapper.UserRow selectedUser = null;
                 if (selected != null) {

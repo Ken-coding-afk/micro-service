@@ -23,6 +23,29 @@ public interface UserManagementMapper {
   record UserRow(
       UUID id, String status, boolean mustChangePassword, long version, long authVersion) {}
 
+  @Select(
+      "SELECT id,status,must_change_password AS \"mustChangePassword\",version,auth_version AS \"authVersion\" FROM sys_user WHERE tenant_id=#{tenant} AND id=#{user}")
+  UserRow findUser(@Param("tenant") UUID tenant, @Param("user") UUID user);
+
+  @Update(
+      """
+      UPDATE sys_user SET display_name=#{displayName},real_name=#{realName},employee_no=#{employeeNo},
+        contact_email=#{contactEmail},phone=#{phone},avatar_url=#{avatarUrl},description=#{description},
+        version=version+1,updated_at=now()
+      WHERE tenant_id=#{tenant} AND id=#{user} AND version=#{version}
+      """)
+  int updateProfile(
+      @Param("tenant") UUID tenant,
+      @Param("user") UUID user,
+      @Param("version") long version,
+      @Param("displayName") String displayName,
+      @Param("realName") String realName,
+      @Param("employeeNo") String employeeNo,
+      @Param("contactEmail") String contactEmail,
+      @Param("phone") String phone,
+      @Param("avatarUrl") String avatarUrl,
+      @Param("description") String description);
+
   @Select("SELECT display_name FROM sys_user WHERE tenant_id=#{tenant} AND id=#{user}")
   String displayName(@Param("tenant") UUID tenant, @Param("user") UUID user);
 
@@ -35,9 +58,10 @@ public interface UserManagementMapper {
       @Param("name") String name);
 
   @Insert(
-      "INSERT INTO sys_auth_audit(actor_id,actor_type,tenant_id,action,target_id,result,request_id,details) VALUES(#{actor},'TENANT',#{tenant},'identity.user.profile.updated',#{target},'SUCCESS',#{request},CAST(#{details} AS jsonb))")
+      "INSERT INTO sys_auth_audit(actor_id,actor_type,tenant_id,action,target_id,result,request_id,details) VALUES(#{actor},#{actorType},#{tenant},'identity.user.profile.updated',#{target},'SUCCESS',#{request},CAST(#{details} AS jsonb))")
   void auditProfile(
       @Param("actor") UUID actor,
+      @Param("actorType") String actorType,
       @Param("tenant") UUID tenant,
       @Param("target") String target,
       @Param("request") String request,
@@ -118,6 +142,10 @@ public interface UserManagementMapper {
       """)
   long countEffectiveAdministrators(@Param("tenant") UUID tenant);
 
+  @Select(
+      "SELECT display_name,real_name,employee_no,contact_email,phone,avatar_url,description FROM sys_user WHERE tenant_id=#{tenant} AND id=#{user}")
+  java.util.Map<String, String> profile(@Param("tenant") UUID tenant, @Param("user") UUID user);
+
   @Update(
       """
       UPDATE sys_user SET status=#{status},version=version+1,auth_version=auth_version+1,updated_at=now()
@@ -132,10 +160,11 @@ public interface UserManagementMapper {
   @Insert(
       """
       INSERT INTO sys_auth_audit(actor_id,actor_type,tenant_id,action,target_id,result,request_id,details)
-      VALUES(#{actor},'TENANT',#{tenant},'identity.user.status',#{target},'SUCCESS',#{requestId},CAST(#{details} AS jsonb))
+      VALUES(#{actor},#{actorType},#{tenant},'identity.user.status',#{target},'SUCCESS',#{requestId},CAST(#{details} AS jsonb))
       """)
   void auditStatus(
       @Param("actor") UUID actor,
+      @Param("actorType") String actorType,
       @Param("tenant") UUID tenant,
       @Param("target") String target,
       @Param("requestId") String requestId,

@@ -54,17 +54,17 @@ describe('浏览器身份 API 边界', () => {
       envelope({
         view: 'APPLICATION_EFFECTIVE',
         sub: 'user',
-        principal_type: 'user',
-        tenant_id: 'tenant',
-        client_id: 'identity-admin-tenant',
+        principal_type: 'platform',
+        tenant_id: null,
+        client_id: 'identity-admin-platform',
         profile: {},
         audiences: {},
       }),
     )
-    await current('tenant')
+    await current()
     expect(fetcher).toHaveBeenCalledOnce()
     const [path, options] = fetcher.mock.calls[0]
-    expect(path).toBe('/bff/identity/tenant/api/me')
+    expect(path).toBe('/bff/identity/platform/api/me')
     expect(options?.credentials).toBe('same-origin')
     expect(options?.redirect).toBe('error')
     expect(new Headers(options?.headers).has('Authorization')).toBe(false)
@@ -82,7 +82,7 @@ describe('浏览器身份 API 边界', () => {
         profile: {},
       }),
     )
-    await expect(current('tenant')).rejects.toMatchObject({ code: 'INVALID_IDENTITY_RESPONSE' })
+    await expect(current()).rejects.toMatchObject({ code: 'INVALID_IDENTITY_RESPONSE' })
   })
 
   it('写入逐次取得本命名空间 CSRF，不混用平台和租户状态', async () => {
@@ -158,23 +158,33 @@ describe('浏览器身份 API 边界', () => {
     await expect(csrf('platform')).rejects.toBeInstanceOf(IdentityError)
   })
 
-  it('登录使用真实表单跳转，只提交 CSRF 和组织代码', async () => {
+  it('管理登录固定使用平台命名空间，只提交 CSRF', async () => {
     const submit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
     fetcher.mockResolvedValue(envelope({ header_name: 'X-CSRF-TOKEN', token: 'masked-csrf' }))
-    await login('tenant', 'sample-tenant')
+    await login()
     const form = document.forms[0]
-    expect(form.getAttribute('action')).toBe('/bff/identity/tenant/login')
+    expect(form.getAttribute('action')).toBe('/bff/identity/platform/login')
     expect(form.method).toBe('post')
     expect(Object.fromEntries(new FormData(form))).toEqual({
       _csrf: 'masked-csrf',
-      tenant_code: 'sample-tenant',
     })
     expect(submit).toHaveBeenCalledOnce()
-    expect(sessionStorage.getItem('identity.admin.realm')).toBe('tenant')
+    expect(sessionStorage.length).toBe(0)
   })
 
-  it('错误组织代码在开始认证前拒绝', async () => {
-    await expect(login('tenant', '../other')).rejects.toMatchObject({ code: 'INVALID_TENANT_CODE' })
-    expect(fetcher).not.toHaveBeenCalled()
+  it('租户管理员会话不能作为后台当前身份', async () => {
+    fetcher.mockResolvedValue(
+      envelope({
+        view: 'APPLICATION_EFFECTIVE',
+        sub: 'tenant-admin',
+        principal_type: 'user',
+        tenant_id: 'alpha',
+        client_id: 'identity-admin-tenant',
+        profile: {},
+        audiences: {},
+      }),
+    )
+    await expect(current()).rejects.toMatchObject({ code: 'INVALID_IDENTITY_RESPONSE' })
+    expect(fetcher).toHaveBeenCalledOnce()
   })
 })

@@ -10,7 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/identity")
+@RequestMapping({
+  "/api/v1/identity",
+  "/api/v1/identity/platform/tenants/{managementTenant}/identity"
+})
 public final class SessionManagementController {
   private final SessionManagementService sessions;
 

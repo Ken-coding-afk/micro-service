@@ -106,8 +106,7 @@ public final class PlatformEnvironmentPostProcessor implements EnvironmentPostPr
       fixed.put(group, fixed.getOrDefault(group, "readinessState") + ",redis");
     }
     boolean docs =
-        "local".equals(values.get("APP_ENV"))
-            && !Set.of("identity-service", "api-gateway").contains(settings.serviceName());
+        "local".equals(values.get("APP_ENV")) && !"api-gateway".equals(settings.serviceName());
     fixed.put("springdoc.api-docs.enabled", docs);
     fixed.put("springdoc.swagger-ui.enabled", docs);
     fixed.put("springdoc.swagger-ui.oauth.client-id", settings.serviceName() + "-swagger");

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { accountContext } from '../../app/context'
@@ -144,6 +145,12 @@ async function openCreate() {
   if (!manageable.value || pending.value) return
   resetModal()
   mode.value = 'create'
+  if (tenantMode.value && !rows.value.length && !query.value && page.value === 0) {
+    draft.code = 'default'
+    draft.name = '默认租户'
+    draft.adminUsername = 'admin'
+    draft.adminDisplayName = '租户管理员'
+  }
   commandId.value = crypto.randomUUID()
   await nextTick()
   dialog.value?.showModal()
@@ -416,14 +423,30 @@ onMounted(() => loadRows(0))
                 }}
               </td>
               <td>
-                <button
-                  v-if="manageable"
-                  class="text-button"
-                  :disabled="pending"
-                  @click="openEdit(row)"
-                >
-                  编辑</button
-                ><span v-else class="muted">只读</span>
+                <div class="row-actions">
+                  <template
+                    v-if="isTenant(row) && owner && can(owner.me, 'platform:identity:read')"
+                  >
+                    <RouterLink
+                      class="text-button"
+                      :to="`/platform/tenants/${row.id}/identity/users`"
+                      >管理用户</RouterLink
+                    >
+                    <RouterLink
+                      class="text-button"
+                      :to="`/platform/tenants/${row.id}/identity/roles`"
+                      >管理角色</RouterLink
+                    >
+                  </template>
+                  <button
+                    v-if="manageable"
+                    class="text-button"
+                    :disabled="pending"
+                    @click="openEdit(row)"
+                  >
+                    编辑</button
+                  ><span v-else class="muted">只读</span>
+                </div>
               </td>
             </tr>
             <tr v-if="!loading && !rows.length">
@@ -506,7 +529,7 @@ onMounted(() => loadRows(0))
         <fieldset :disabled="pending || uncertainCreate" class="plain-fields">
           <template v-if="tenantMode"
             ><div class="field">
-              <label for="tenant-code-create">组织代码</label
+              <label for="tenant-code-create">租户编码</label
               ><input
                 id="tenant-code-create"
                 v-model="draft.code"

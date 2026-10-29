@@ -3,12 +3,15 @@ import { h } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AdminApp from '../src/app/AdminApp.vue'
-import { brand, current, IdentityError, type Me } from '../src/api/identity'
+import { brand, current, login, read, IdentityError, type Me } from '../src/api/identity'
 
 vi.mock('../src/api/identity', async (original) => ({
   ...(await original<typeof import('../src/api/identity')>()),
   brand: vi.fn(),
   current: vi.fn(),
+  login: vi.fn(),
+  logout: vi.fn(),
+  read: vi.fn(),
 }))
 const platform = (): Me => ({
   view: 'APPLICATION_EFFECTIVE',
@@ -28,6 +31,8 @@ const platform = (): Me => ({
 beforeEach(() => {
   vi.clearAllMocks()
   sessionStorage.clear()
+  vi.mocked(read).mockResolvedValue({ page: 0, size: 100, has_more: false, items: [] })
+  vi.mocked(login).mockReset().mockResolvedValue()
   vi.mocked(brand).mockResolvedValue({
     project_display_name: '示例项目',
     login_title: '账号登录',
@@ -38,16 +43,17 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  window.history.replaceState({}, '', '/')
 })
 
-async function screen() {
+async function screen(path = '/account') {
   const placeholder = { render: () => h('div', '页面内容') }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/account', component: placeholder },
-      { path: '/audits', component: placeholder },
-      { path: '/sessions', component: placeholder },
+      { path: '/platform/audits', component: placeholder },
+      { path: '/platform/tenants/:managementTenant/identity/users', component: placeholder },
       {
         path: '/platform/tenants',
         component: placeholder,
@@ -55,173 +61,148 @@ async function screen() {
       },
     ],
   })
-  await router.push('/account')
+  await router.push(path)
   await router.isReady()
-  const wrapper = mount(AdminApp, { global: { plugins: [router] } })
+  const wrapper = mount(AdminApp, { global: { plugins: [router], stubs: { TenantPicker: true } } })
   await flushPromises()
   return { wrapper, router }
 }
 
-describe('固定管理入口与导航', () => {
-  it('会话读取权才显示租户会话入口，只有管理权不能替代读取', async () => {
-    const tenant: Me = {
-      ...platform(),
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
-    }
-    tenant.audiences['identity-service'].permissions = ['identity:session:read']
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'tenant') return tenant
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
-    })
-    let view = await screen()
-    expect(view.wrapper.findAll('nav a').some((link) => link.text().includes('会话管理'))).toBe(
-      true,
-    )
-    view.wrapper.unmount()
-    tenant.audiences['identity-service'].permissions = ['identity:session:manage']
-    view = await screen()
-    expect(view.wrapper.findAll('nav a').some((link) => link.text().includes('会话管理'))).toBe(
-      false,
-    )
-    view.wrapper.unmount()
-  })
-  it.each(['platform', 'tenant'] as const)(
-    '审计导航要求当前物理身份的独立权限：%s',
-    async (realm) => {
-      const active: Me =
-        realm === 'platform'
-          ? platform()
-          : {
-              ...platform(),
-              principal_type: 'user',
-              tenant_id: 'tenant',
-              client_id: 'identity-admin-tenant',
-            }
-      active.audiences['identity-service'].permissions = [
-        realm === 'platform' ? 'platform:audit:read' : 'identity:audit:read',
-      ]
-      vi.mocked(current).mockImplementation(async (requested) => {
-        if (requested === realm) return active
-        throw new IdentityError(401, 'INVALID_CREDENTIALS')
-      })
-      let view = await screen()
-      expect(view.wrapper.findAll('nav a').some((link) => link.text().includes('管理审计'))).toBe(
-        true,
-      )
-      view.wrapper.unmount()
-      active.audiences['identity-service'].permissions = [
-        realm === 'platform' ? 'identity:audit:read' : 'platform:audit:read',
-      ]
-      view = await screen()
-      expect(view.wrapper.findAll('nav a').some((link) => link.text().includes('管理审计'))).toBe(
-        false,
-      )
-      view.wrapper.unmount()
-    },
-  )
-  it('角色读取权显示固定角色入口，不隐含目录或用户读取能力', async () => {
-    const tenant: Me = {
-      ...platform(),
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
-    }
-    tenant.audiences['identity-service'].permissions = ['identity:role:read']
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'tenant') return tenant
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
-    })
-    const { wrapper } = await screen()
-    const links = wrapper.findAll('nav a')
-    expect(links.some((link) => link.text().includes('角色管理'))).toBe(true)
-    expect(links.some((link) => link.text().includes('权限与授权'))).toBe(false)
-    expect(links.some((link) => link.text().includes('用户管理'))).toBe(false)
-    wrapper.unmount()
-  })
-  it('目录读取权显示固定权限入口，不隐含用户管理权', async () => {
-    const tenant: Me = {
-      ...platform(),
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
-    }
-    tenant.audiences['identity-service'].permissions = ['identity:permission:read']
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'tenant') return tenant
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
-    })
-    const { wrapper } = await screen()
-    expect(wrapper.findAll('nav a').some((link) => link.text().includes('权限与授权'))).toBe(true)
-    expect(wrapper.findAll('nav a').some((link) => link.text().includes('用户管理'))).toBe(false)
-    wrapper.unmount()
-  })
-  it('租户读取权只显示租户用户入口，不产生平台导航', async () => {
-    const tenant: Me = {
-      ...platform(),
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
-    }
-    tenant.audiences['identity-service'].permissions = ['identity:user:read']
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'tenant') return tenant
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
-    })
-    const { wrapper } = await screen()
-    expect(wrapper.findAll('nav a').some((link) => link.text().includes('用户管理'))).toBe(true)
-    expect(wrapper.findAll('nav a').some((link) => link.text().includes('租户管理'))).toBe(false)
-    wrapper.unmount()
-  })
-  it('已选择租户入口失效时不静默进入仍有效的平台入口', async () => {
-    sessionStorage.setItem('identity.admin.realm', 'tenant')
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'platform') return platform()
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
-    })
-    const { wrapper } = await screen()
-    expect(wrapper.findAll('h2').some((item) => item.text() === '账号登录')).toBe(true)
-    expect(wrapper.findAll('h1').some((item) => item.text() === '个人账号')).toBe(false)
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text() === '进入平台管理')
-      ?.trigger('click')
-    await flushPromises()
-    expect(wrapper.get('h1').text()).toBe('个人账号')
-    expect(vi.mocked(current).mock.calls.filter((call) => call[0] === 'platform')).toHaveLength(2)
-    wrapper.unmount()
-  })
-
-  it('导航只显示当前应用允许的固定平台页面', async () => {
-    sessionStorage.setItem('identity.admin.realm', 'platform')
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'platform') return platform()
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
+describe('平台管理员唯一入口', () => {
+  it.each([
+    [[], '/platform/tenants'],
+    [['only'], '/platform/tenants/only/identity/users'],
+    [['default', 'other'], '/platform/tenants'],
+  ])('首页按可用租户数量进入工作区 %j', async (ids, expected) => {
+    window.history.replaceState({}, '', '/identity/admin/')
+    vi.mocked(current).mockResolvedValue(platform())
+    vi.mocked(read).mockResolvedValue({
+      items: (ids as string[]).map((id) => ({ id, code: id, status: 'ACTIVE', expires_at: null })),
+      has_more: false,
     })
     const { wrapper, router } = await screen()
-    expect(wrapper.findAll('nav a').some((link) => link.text().includes('租户管理'))).toBe(true)
-    expect(wrapper.findAll('nav a').some((link) => link.text().includes('平台管理员'))).toBe(false)
-    await router.push('/platform/tenants')
-    await flushPromises()
-    expect(wrapper.get('h1').text()).toBe('租户管理')
+    expect(router.currentRoute.value.path).toBe(expected)
     wrapper.unmount()
   })
-
-  it('租户主体不会因同名伪造显示权限出现平台导航', async () => {
-    const tenant: Me = {
-      ...platform(),
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
-    }
-    vi.mocked(current).mockImplementation(async (realm) => {
-      if (realm === 'tenant') return tenant
-      throw new IdentityError(401, 'INVALID_CREDENTIALS')
+  it('两个标签页分别保留 URL 目标，刷新不自动切到默认租户', async () => {
+    vi.mocked(current).mockResolvedValue(platform())
+    vi.mocked(read).mockResolvedValue({
+      items: ['default', 'other'].map((id) => ({ id, status: 'ACTIVE' })),
+      has_more: false,
     })
+    const first = await screen('/platform/tenants/default/identity/users')
+    const second = await screen('/platform/tenants/other/identity/users')
+    expect(first.router.currentRoute.value.params.managementTenant).toBe('default')
+    expect(second.router.currentRoute.value.params.managementTenant).toBe('other')
+    first.wrapper.unmount()
+    second.wrapper.unmount()
+  })
+  it('匿名打开后台自动进入平台账号密码页，不需要二次点击', async () => {
+    vi.mocked(current).mockRejectedValue(new IdentityError(401, 'INVALID_CREDENTIALS'))
     const { wrapper } = await screen()
-    expect(wrapper.findAll('nav a')).toHaveLength(1)
-    expect(wrapper.findAll('nav a')[0].text()).toContain('个人账号')
+    expect(current).toHaveBeenCalledExactlyOnceWith()
+    expect(wrapper.text()).toContain('平台管理员登录')
+    expect(wrapper.text()).not.toContain('租户账号')
+    expect(wrapper.find('[name=tenant_code]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('页面内容')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('.sidebar').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('继续登录')
+    expect(login).toHaveBeenCalledExactlyOnceWith()
+    wrapper.unmount()
+  })
+  it('登录准备失败时显示错误并允许手动重试，不自动循环', async () => {
+    vi.mocked(current).mockRejectedValue(new IdentityError(401, 'INVALID_CREDENTIALS'))
+    vi.mocked(login).mockRejectedValueOnce(new IdentityError(503, 'SERVICE_UNAVAILABLE'))
+    const { wrapper } = await screen()
+    expect(login).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[role=alert]').text()).toContain('服务暂时不可用')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(login).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+  it('更换账号直接打开登录表单', async () => {
+    vi.mocked(current).mockResolvedValue(platform())
+    const { wrapper } = await screen()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '更换账号')!
+      .trigger('click')
+    expect(login).toHaveBeenCalledExactlyOnceWith()
+    expect(wrapper.find('form').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('旧租户偏好不影响平台会话恢复，不读取租户会话', async () => {
+    sessionStorage.setItem('identity.admin.realm', 'tenant')
+    vi.mocked(current).mockResolvedValue(platform())
+    const { wrapper } = await screen()
+    expect(current).toHaveBeenCalledExactlyOnceWith()
+    expect(wrapper.text()).toContain('页面内容')
+    expect(wrapper.text()).not.toContain('进入租户管理')
+    expect(wrapper.get('.realm-badge').text()).toBe('平台管理员')
+    expect(login).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('会话失效不显示管理内容，错误身份也不挂载页面', async () => {
+    vi.mocked(current).mockRejectedValue(new IdentityError(503, 'INVALID_IDENTITY_RESPONSE'))
+    const { wrapper } = await screen()
+    expect(wrapper.text()).not.toContain('页面内容')
+    expect(wrapper.get('[role=alert]').text()).toContain('服务暂时不可用')
+    wrapper.unmount()
+  })
+  it('平台权限决定项目导航，租户权限不能代替平台权限', async () => {
+    const active = platform()
+    active.audiences['identity-service'].permissions = [
+      'platform:tenant:read',
+      'identity:audit:read',
+    ]
+    vi.mocked(current).mockResolvedValue(active)
+    const { wrapper } = await screen()
+    expect(wrapper.findAll('nav a').map((a) => a.text())).toEqual(['租户管理', '个人账号'])
+    wrapper.unmount()
+  })
+  it('未选择租户不显示租户内管理，平台审计始终使用平台路径', async () => {
+    const active = platform()
+    active.audiences['identity-service'].permissions = [
+      'platform:identity:read',
+      'platform:audit:read',
+    ]
+    vi.mocked(current).mockResolvedValue(active)
+    const { wrapper } = await screen()
+    expect(wrapper.findAll('nav a').map((a) => a.text())).toEqual([
+      '用户管理',
+      '用户组',
+      '角色管理',
+      '审计日志',
+      '个人账号',
+    ])
+    expect(wrapper.find('a[href="/platform/audits"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+  it.each([
+    [[], []],
+    [['platform:identity:manage'], []],
+    [['platform:identity:read'], ['用户管理', '用户组', '角色管理']],
+    [
+      ['platform:identity:read', 'platform:audit:read'],
+      ['用户管理', '用户组', '角色管理'],
+    ],
+  ])('选定租户后按平台权限显示目标管理入口 %j', async (permissions, expected) => {
+    const active = platform()
+    active.audiences['identity-service'].permissions = permissions
+    vi.mocked(current).mockResolvedValue(active)
+    const { wrapper } = await screen('/platform/tenants/alpha/identity/users')
+    const links = wrapper
+      .findAll('nav a')
+      .filter((a) => (a.attributes('href') ?? '').includes('/tenants/alpha/'))
+    expect(links.map((a) => a.text())).toEqual(expected)
+    expect(
+      links.every((a) =>
+        (a.attributes('href') ?? '').includes('/platform/tenants/alpha/identity/'),
+      ),
+    ).toBe(true)
+    expect(wrapper.get('.realm-badge').text()).toBe('平台管理员')
     wrapper.unmount()
   })
 })

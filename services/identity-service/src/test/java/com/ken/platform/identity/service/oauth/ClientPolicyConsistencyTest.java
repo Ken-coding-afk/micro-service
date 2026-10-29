@@ -135,7 +135,7 @@ class ClientPolicyConsistencyTest {
           name);
     }
     jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('client-alt:read','读取','other-service','TENANT','other','其他','other','其他','read',ARRAY['SELF','TENANT'],'document.read') ON CONFLICT DO NOTHING");
+        "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','client-alt:read','读取','other-service','TENANT','other','其他','other','其他','read',ARRAY['SELF','TENANT'],'document.read') ON CONFLICT DO NOTHING");
   }
 
   private ClientManagementService service(ClientStore data, AccountManagementMapper mapper) {

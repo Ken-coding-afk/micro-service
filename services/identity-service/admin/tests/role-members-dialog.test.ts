@@ -33,18 +33,19 @@ beforeEach(() => {
     restrictions: [],
   }
   owner = {
-    realm: 'tenant',
+    realm: 'platform',
+    targetTenant: 'tenant-one',
     me: {
       view: 'APPLICATION_EFFECTIVE',
       sub: 'manager',
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
+      principal_type: 'platform',
+      tenant_id: null,
+      client_id: 'identity-admin-platform',
       profile: {},
       audiences: {
         'identity-service': {
           scopes: ['identity.users', 'identity.roles'],
-          permissions: ['identity:user:read', 'identity:role:read'],
+          permissions: ['platform:identity:read', 'platform:identity:read'],
           data_scopes: {},
         },
       },
@@ -114,7 +115,7 @@ async function screen() {
   return { wrapper, subject }
 }
 describe('只读角色成员', () => {
-  it('要求两个读取权限，缺少用户读取权时不请求或展示成员', async () => {
+  it('缺少平台身份读取权时不请求或展示成员', async () => {
     owner.me.audiences['identity-service'].permissions = ['identity:role:read']
     const { wrapper } = await screen()
     expect(read).not.toHaveBeenCalled()
@@ -125,14 +126,20 @@ describe('只读角色成员', () => {
   })
   it('只通过确定角色分页读取摘要，失败不跳页或发出写入', async () => {
     const { wrapper } = await screen()
-    expect(read).toHaveBeenCalledWith('tenant', '/roles/reader-role/members?page=0&size=20')
+    expect(read).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles/reader-role/members?page=0&size=20',
+    )
     expect(wrapper.text()).toContain('learner-0')
     await wrapper
       .findAll('button')
       .find((button) => button.text() === '下一页成员')!
       .trigger('click')
     await flushPromises()
-    expect(read).toHaveBeenLastCalledWith('tenant', '/roles/reader-role/members?page=1&size=20')
+    expect(read).toHaveBeenLastCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles/reader-role/members?page=1&size=20',
+    )
     expect(wrapper.text()).toContain('learner-1')
     vi.mocked(read).mockRejectedValueOnce(new IdentityError(503, 'DEPENDENCY_UNAVAILABLE'))
     await wrapper

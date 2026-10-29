@@ -41,18 +41,23 @@ beforeEach(() => {
     grants: [{ permission_code: 'document:read', data_scope: 'SELF' }],
   }
   owner = {
-    realm: 'tenant',
+    realm: 'platform',
+    targetTenant: 'tenant-one',
     me: {
       view: 'APPLICATION_EFFECTIVE',
       sub: 'manager',
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
+      principal_type: 'platform',
+      tenant_id: null,
+      client_id: 'identity-admin-platform',
       profile: {},
       audiences: {
         'identity-service': {
           scopes: ['identity.roles'],
-          permissions: ['identity:role:read', 'identity:role:manage', 'identity:permission:read'],
+          permissions: [
+            'platform:identity:read',
+            'platform:identity:manage',
+            'platform:identity:read',
+          ],
           data_scopes: {},
         },
       },
@@ -62,7 +67,7 @@ beforeEach(() => {
     failed: vi.fn(),
   }
   mockedRead.mockImplementation(async (_realm, path) =>
-    path.startsWith('/roles?')
+    path.startsWith('/platform/tenants/tenant-one/identity/roles?')
       ? {
           page: 0,
           size: 20,
@@ -101,7 +106,10 @@ async function screen() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: RolesPage },
-      { path: '/permissions', component: { render: () => h('div') } },
+      {
+        path: '/platform/tenants/tenant-one/identity/permissions',
+        component: { render: () => h('div') },
+      },
     ],
   })
   await router.push('/')
@@ -137,7 +145,12 @@ describe('角色资料管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await wrapper.get('dialog form').trigger('submit')
     expect(mockedWrite).toHaveBeenCalledTimes(1)
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/roles/role-one', { version: 4 }, 'DELETE')
+    expect(mockedWrite).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles/role-one',
+      { version: 4 },
+      'DELETE',
+    )
     finish()
     await flushPromises()
     expect(wrapper.text()).toContain('角色已删除')
@@ -159,7 +172,7 @@ describe('角色资料管理', () => {
     mockedWrite.mockRejectedValueOnce(new IdentityError(409, 'ROLE_NOT_EMPTY'))
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
-    expect(wrapper.text()).toContain('先移除此角色的全部成员')
+    expect(wrapper.text()).toContain('先移除此角色的用户和用户组引用')
     expect(wrapper.text()).not.toContain('角色已删除')
     expect(wrapper.find('dialog [role="status"]').exists()).toBe(false)
     wrapper.unmount()
@@ -177,8 +190,8 @@ describe('角色资料管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
     expect(mockedWrite.mock.calls[1]).toEqual([
-      'tenant',
-      '/roles/role-one',
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles/role-one',
       { version: 10 },
       'DELETE',
     ])
@@ -193,7 +206,10 @@ describe('角色资料管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     expect(mockedWrite).toHaveBeenCalledTimes(1)
     await click(wrapper, '核对角色列表')
-    expect(mockedRead).toHaveBeenLastCalledWith('tenant', '/roles?page=0&size=20&q=reader')
+    expect(mockedRead).toHaveBeenLastCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles?page=0&size=20&q=reader',
+    )
     expect(wrapper.text()).not.toContain('角色已删除')
     wrapper.unmount()
   })
@@ -230,12 +246,12 @@ describe('角色资料管理', () => {
     )
     wrapper.unmount()
   })
-  it('平台不能读取，委派可编辑授权不代表可创建或维护资料', async () => {
-    owner.realm = 'platform'
+  it('未选租户不能读取，受限角色不能维护资料', async () => {
+    owner.targetTenant = undefined
     let wrapper = await screen()
     expect(mockedRead).not.toHaveBeenCalled()
     wrapper.unmount()
-    owner.realm = 'tenant'
+    owner.targetTenant = 'tenant-one'
     canCreate = false
     source.role.can_manage = false
     wrapper = await screen()
@@ -264,14 +280,21 @@ describe('角色资料管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await wrapper.get('dialog form').trigger('submit')
     expect(mockedWrite).toHaveBeenCalledTimes(1)
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/roles', {
-      code: 'new-role',
-      name: '新角色',
-      description: '',
-    })
+    expect(mockedWrite).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles',
+      {
+        code: 'new-role',
+        name: '新角色',
+        description: '',
+      },
+    )
     finish()
     await flushPromises()
-    expect(mockedRead).toHaveBeenLastCalledWith('tenant', '/roles?page=0&size=20&q=new-role')
+    expect(mockedRead).toHaveBeenLastCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles?page=0&size=20&q=new-role',
+    )
     expect(wrapper.text()).toContain('角色已创建')
     wrapper.unmount()
   })
@@ -283,13 +306,17 @@ describe('角色资料管理', () => {
     await wrapper.get('#role-name').setValue('复制阅读者')
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/roles/role-one:copy', {
-      role_version: 4,
-      catalog_version: 7,
-      code: 'copy-reader',
-      name: '复制阅读者',
-      description: '',
-    })
+    expect(mockedWrite).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles/role-one:copy',
+      {
+        role_version: 4,
+        catalog_version: 7,
+        code: 'copy-reader',
+        name: '复制阅读者',
+        description: '',
+      },
+    )
     expect(wrapper.text()).toContain('授权和状态沿用已确认源角色')
     wrapper.unmount()
   })
@@ -302,8 +329,8 @@ describe('角色资料管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
     expect(mockedWrite).toHaveBeenCalledWith(
-      'tenant',
-      '/roles/role-one',
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles/role-one',
       { version: 4, name: '更新名称', status: 'DISABLED', description: '' },
       'PUT',
     )
@@ -351,7 +378,10 @@ describe('角色资料管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     expect(mockedWrite).toHaveBeenCalledTimes(1)
     await click(wrapper, '核对角色列表')
-    expect(mockedRead).toHaveBeenLastCalledWith('tenant', '/roles?page=0&size=20&q=unknown-role')
+    expect(mockedRead).toHaveBeenLastCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/roles?page=0&size=20&q=unknown-role',
+    )
     expect(mockedWrite).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
@@ -359,8 +389,10 @@ describe('角色资料管理', () => {
     source.role.protected = true
     source.role.can_manage = false
     const wrapper = await screen()
-    expect(wrapper.findAll('tbody button')).toHaveLength(0)
-    expect(wrapper.get('tbody a').attributes('href')).toBe('/permissions?role=role-one')
+    expect(wrapper.findAll('tbody button').map((button) => button.text())).toEqual(['查看成员'])
+    expect(wrapper.get('tbody a').attributes('href')).toBe(
+      '/platform/tenants/tenant-one/identity/roles/role-one',
+    )
     wrapper.unmount()
   })
 })

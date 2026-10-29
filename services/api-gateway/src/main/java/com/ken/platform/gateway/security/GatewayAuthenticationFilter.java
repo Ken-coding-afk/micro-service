@@ -27,6 +27,9 @@ public final class GatewayAuthenticationFilter implements GlobalFilter, Ordered 
     Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
     if (route != null && Boolean.TRUE.equals(route.getMetadata().get("platform.identity-public")))
       return chain.filter(exchange);
+    // 固定身份 API 由 identity-service 的资源安全链验证 Bearer 和管理权限；不另建内省凭据。
+    if (route != null && Boolean.TRUE.equals(route.getMetadata().get("platform.identity-resource")))
+      return chain.filter(exchange);
     if (route == null || !(route.getMetadata().get("platform.audience") instanceof String audience))
       return Mono.error(new PlatformException("FORBIDDEN", "目标 API 未登记", 403));
     if (route.getMetadata().containsKey("bff.namespace")) {

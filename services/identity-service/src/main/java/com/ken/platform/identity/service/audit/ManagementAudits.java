@@ -20,6 +20,16 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public final class ManagementAudits {
   public enum Action {
+    GROUP_CREATE("identity.group.created"),
+    GROUP_UPDATE("identity.group.updated"),
+    GROUP_MOVE("identity.group.moved"),
+    GROUP_DELETE("identity.group.deleted"),
+    GROUP_MEMBERS("identity.group.members"),
+    GROUP_ROLES("identity.group.roles"),
+    PERMISSION_CREATE("platform.permission.created"),
+    PERMISSION_UPDATE("platform.permission.updated"),
+    PASSWORD_RESET_ISSUE("identity.password-reset.issued"),
+    PASSWORD_RESET_CONSUME("identity.password-reset.consumed"),
     TENANT_UPDATE("platform.tenant.updated"),
     ADMINISTRATOR_UPDATE("platform.admin.updated"),
     TENANT_CREATE("platform.tenant.created"),
@@ -70,6 +80,9 @@ public final class ManagementAudits {
     var context = CallContexts.current();
     String request = context == null ? UUID.randomUUID().toString() : context.requestId();
     Actor actor = actor();
+    UUID targetTenant =
+        com.ken.platform.identity.service.authorization.TenantManagementAuthorization
+            .targetTenant();
     try {
       return operation.get();
     } catch (RuntimeException failure) {
@@ -86,10 +99,13 @@ public final class ManagementAudits {
       try {
         events.execute(
             status -> {
+              // 路径中的目标可能不存在；失败审计不能将其写成有外键的可信租户。
+              UUID auditTenant =
+                  targetTenant == null ? actor.tenant() : repository.existingTenant(targetTenant);
               repository.failure(
                   actor.id(),
                   actor.type(),
-                  actor.tenant(),
+                  auditTenant,
                   action.code,
                   target,
                   request,

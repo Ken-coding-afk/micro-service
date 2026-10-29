@@ -109,7 +109,7 @@ class RoleAssignmentServiceTest {
     data(
         () -> {
           jdbc.update(
-              "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('identity:role:assign','分配角色','identity-service','TENANT','identity','身份','role','角色','assign',ARRAY['TENANT'],'identity.roles') ON CONFLICT DO NOTHING");
+              "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','identity:role:assign','分配角色','identity-service','TENANT','identity','身份','role','角色','assign',ARRAY['TENANT'],'identity.roles') ON CONFLICT DO NOTHING");
           for (UUID user : List.of(actor, secondAdmin, target)) {
             jdbc.update(
                 "INSERT INTO sys_user(id,tenant_id,normalized_username,display_name,password_hash,status,must_change_password) VALUES (?,?,?,'测试用户','{bcrypt}fixture','ACTIVE',false)",

@@ -43,7 +43,11 @@ final class BrowserContentSecurityPolicy implements HeaderWriter {
         Target target =
             path.equals("/identity/consent")
                 ? consentTarget(request)
-                : Set.of("/identity/login", "/identity/password/initial").contains(path)
+                : Set.of(
+                            "/identity/login",
+                            "/identity/password/initial",
+                            "/identity/password/reset")
+                        .contains(path)
                     ? savedTarget(request, response)
                     : null;
         if (target != null) redirect = registeredSource(target);

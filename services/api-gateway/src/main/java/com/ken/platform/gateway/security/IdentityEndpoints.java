@@ -18,6 +18,7 @@ public final class IdentityEndpoints {
           "/connect/logout",
           "/identity/login",
           "/identity/password/initial",
+          "/identity/password/reset",
           "/identity/session",
           "/identity/consent",
           "/identity/logout",

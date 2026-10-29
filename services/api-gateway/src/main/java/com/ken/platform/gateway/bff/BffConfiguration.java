@@ -3,7 +3,6 @@ package com.ken.platform.gateway.bff;
 import com.ken.platform.foundation.config.RuntimeParameters;
 import com.ken.platform.foundation.discovery.NacosRuntime;
 import com.ken.platform.foundation.discovery.PlatformReadinessCheck;
-import com.ken.platform.foundation.discovery.ServiceDiscovery;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.gateway.security.GatewayErrors;
 import java.time.Clock;
@@ -84,12 +83,6 @@ public class BffConfiguration {
   @Bean
   ServerOAuth2AuthorizedClientRepository bffAuthorizedClients() {
     return new WebSessionServerOAuth2AuthorizedClientRepository();
-  }
-
-  @Bean
-  BffIdentityClient bffIdentity(
-      ServiceDiscovery discovery, RuntimeParameters parameters, Clock clock) {
-    return new BffIdentityClient(discovery, parameters, clock);
   }
 
   @Bean

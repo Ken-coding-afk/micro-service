@@ -145,7 +145,7 @@ public final class PermissionCatalogService {
     String publisher = publisher(owner);
     Map<String, PermissionCatalogMapper.Row> proposed = new TreeMap<>();
     for (Entry entry : entries) {
-      var row = normalize(owner, entry);
+      var row = normalize(owner, entry, "PUBLISHED");
       if (proposed.putIfAbsent(row.code(), row) != null) {
         throw invalid("清单含重复权限编码");
       }
@@ -165,6 +165,8 @@ public final class PermissionCatalogService {
           for (var row : proposed.values()) {
             var old = all.get(row.code());
             if (old != null) {
+              if (!old.source().equals("PUBLISHED"))
+                throw conflict("PERMISSION_SOURCE_CONFLICT", "发布流程不能覆盖系统或手工权限");
               if (!old.ownerService().equals(owner)) {
                 throw conflict("PERMISSION_OWNER_CONFLICT", "权限编码已由其他服务拥有");
               }
@@ -238,7 +240,7 @@ public final class PermissionCatalogService {
     return authentication.getName();
   }
 
-  private static PermissionCatalogMapper.Row normalize(String owner, Entry value) {
+  static PermissionCatalogMapper.Row normalize(String owner, Entry value, String source) {
     if (value == null
         || value.code() == null
         || !value.code().matches("[a-z][a-z0-9:_-]{0,159}")
@@ -266,7 +268,11 @@ public final class PermissionCatalogService {
       throw invalid("OAuth scope 声明不合法");
     }
     String description = value.description() == null ? "" : value.description();
-    if (description.contains("<") || description.contains(">")) {
+    if (description.codePointCount(0, description.length()) > 1000
+        || description.contains("<")
+        || description.contains(">")
+        || description.codePoints().anyMatch(Character::isISOControl)
+        || value.sort() < 0) {
       throw invalid("目录说明只接受纯文本");
     }
     String scopes =
@@ -285,7 +291,8 @@ public final class PermissionCatalogService {
         value.sort(),
         scopes,
         value.oauthScope(),
-        value.status().name());
+        value.status().name(),
+        source);
   }
 
   private static boolean sameMeaning(
@@ -312,7 +319,7 @@ public final class PermissionCatalogService {
         && old.status().equals(next.status());
   }
 
-  private static void coherent(List<PermissionCatalogMapper.Row> rows) {
+  static void coherent(List<PermissionCatalogMapper.Row> rows) {
     Map<String, Group> groups = new HashMap<>();
     Map<String, String> resources = new HashMap<>();
     Set<String> operations = new HashSet<>();

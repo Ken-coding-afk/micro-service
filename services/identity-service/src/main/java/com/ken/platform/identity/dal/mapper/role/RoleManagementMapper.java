@@ -52,7 +52,7 @@ public interface RoleManagementMapper {
       @Param("description") String description);
 
   @Select(
-      "SELECT EXISTS(SELECT 1 FROM sys_user_role WHERE tenant_id=#{tenant} AND role_id=#{role})")
+      "SELECT EXISTS(SELECT 1 FROM sys_user_role WHERE tenant_id=#{tenant} AND role_id=#{role}) OR EXISTS(SELECT 1 FROM sys_user_group_role WHERE tenant_id=#{tenant} AND role_id=#{role})")
   boolean hasMembers(@Param("tenant") UUID tenant, @Param("role") UUID role);
 
   @Select(
@@ -69,10 +69,11 @@ public interface RoleManagementMapper {
   @Insert(
       """
       INSERT INTO sys_auth_audit(actor_id,actor_type,tenant_id,action,target_id,result,request_id,details)
-      VALUES(#{actor},'TENANT',#{tenant},#{action},#{target},'SUCCESS',#{request},CAST(#{details} AS jsonb))
+      VALUES(#{actor},#{actorType},#{tenant},#{action},#{target},'SUCCESS',#{request},CAST(#{details} AS jsonb))
       """)
   void audit(
       @Param("actor") UUID actor,
+      @Param("actorType") String actorType,
       @Param("tenant") UUID tenant,
       @Param("action") String action,
       @Param("target") String target,

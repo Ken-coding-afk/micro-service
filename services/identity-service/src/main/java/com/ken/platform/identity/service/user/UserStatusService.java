@@ -58,21 +58,22 @@ public final class UserStatusService {
       throw new PlatformException("INVALID_ARGUMENT", "账号状态参数不合法", 400);
     }
     UUID actor = authorization.actorFor(OPERATION);
-    return transactions.execute(
+    return authorization.execute(
+        transactions,
         () -> {
           var context = CallContexts.current();
-          UUID tenant = context.tenantId();
-          mapper.lockCatalog();
-          var tenantRow = mapper.lockTenant(tenant);
+          UUID tenant = authorization.tenantId();
+          authorization.lockCatalog();
+          var tenantRow = authorization.lockTenant(tenant);
           if (tenantRow == null
               || !tenantRow.status().equals("ACTIVE")
               || tenantRow.expiresAt() != null
                   && !clock.instant().isBefore(tenantRow.expiresAt())) {
             throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
           }
-          List<UUID> affected = actor.equals(target) ? List.of(actor) : List.of(actor, target);
-          mapper.lockMemberRoles(tenant, affected);
-          var users = mapper.lockUsers(tenant, affected);
+          List<UUID> affected = authorization.userIds(actor, target);
+          authorization.lockMemberRoles(tenant, affected);
+          var users = authorization.lockUsers(tenant, affected);
           authorization.requireProtectedAdministrator(tenant, actor, OPERATION, users);
           var user =
               users.stream()
@@ -100,6 +101,7 @@ public final class UserStatusService {
           long version = user.version() + 1;
           mapper.auditStatus(
               actor,
+              authorization.actorType(),
               tenant,
               target.toString(),
               context.requestId(),

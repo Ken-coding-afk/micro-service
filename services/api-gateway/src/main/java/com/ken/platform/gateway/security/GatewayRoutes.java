@@ -28,8 +28,7 @@ public final class GatewayRoutes {
       String path = predicate.getArgs().values().iterator().next();
       if (!path.matches("/api/v1/[a-z][a-z0-9-]*/\\*\\*")
           || !paths.add(path)
-          || path.equals("/api/v1/identity/**")
-              && !route.getUri().getHost().equals("identity-service")) throw invalid();
+          || path.equals("/api/v1/identity/**")) throw invalid();
       if (!Set.of("platform.audience", "platform.streaming")
               .containsAll(route.getMetadata().keySet())
           || !(route.getMetadata().get("platform.audience") instanceof String audience)
@@ -81,6 +80,17 @@ public final class GatewayRoutes {
 
   public List<RouteDefinition> identityRoutes() {
     List<RouteDefinition> result = new ArrayList<>();
+    var resource = new RouteDefinition();
+    resource.setId("framework-identity-api");
+    resource.setOrder(-5);
+    resource.setUri(URI.create("lb://identity-service"));
+    resource.setPredicates(List.of(new PredicateDefinition("Path=/api/v1/identity/**")));
+    resource.setFilters(
+        List.of(
+            new FilterDefinition("RemoveRequestHeader=Cookie"),
+            new FilterDefinition("RemoveResponseHeader=Set-Cookie")));
+    resource.setMetadata(Map.of("platform.identity-resource", true));
+    result.add(resource);
     int index = 0;
     for (String path : IdentityEndpoints.paths().stream().sorted().toList()) {
       var route = new RouteDefinition();

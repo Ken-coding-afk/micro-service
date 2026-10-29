@@ -86,6 +86,33 @@ class EnvironmentBindingTest {
   }
 
   @Test
+  void identityOpenApiIsEnabledOnlyForLocalDevelopment() throws Exception {
+    for (String appEnv : new String[] {"local", "prod"}) {
+      var environment = environment();
+      environment
+          .getPropertySources()
+          .addFirst(
+              new MapPropertySource(
+                  "identity-docs",
+                  Map.of(
+                      "SERVICE_NAME",
+                      "identity-service",
+                      "APP_ENV",
+                      appEnv,
+                      "SERVICE_SCHEME",
+                      "https",
+                      "NACOS_NAMESPACE",
+                      "sample-" + appEnv)));
+      new PlatformEnvironmentPostProcessor()
+          .postProcessEnvironment(environment, new SpringApplication(IdentityFixture.class));
+      assertThat(environment.getProperty("springdoc.api-docs.enabled"))
+          .isEqualTo(appEnv.equals("local") ? "true" : "false");
+      assertThat(environment.getProperty("springdoc.swagger-ui.enabled"))
+          .isEqualTo(appEnv.equals("local") ? "true" : "false");
+    }
+  }
+
+  @Test
   void environmentCannotRenameArtifactToAnotherService() throws Exception {
     var environment = environment();
     environment

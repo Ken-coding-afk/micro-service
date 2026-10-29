@@ -17,7 +17,7 @@ const entry = {
   id: 'entry-one',
   actor_id: 'a20abb78-b557-40fe-98ae-7084576ed841',
   actor_type: 'TENANT',
-  tenant_id: 'tenant',
+  tenant_id: null,
   action: 'identity.role.updated',
   target_id: 'role-one',
   result: 'SUCCESS',
@@ -36,18 +36,19 @@ const originals = ['showModal', 'close'].map((name) =>
 beforeEach(() => {
   vi.clearAllMocks()
   owner = reactive({
-    realm: 'tenant',
+    realm: 'platform',
+    targetTenant: 'tenant-one',
     me: {
       view: 'APPLICATION_EFFECTIVE',
       sub: 'manager',
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
+      principal_type: 'platform',
+      tenant_id: null,
+      client_id: 'identity-admin-platform',
       profile: {},
       audiences: {
         'identity-service': {
-          permissions: ['identity:audit:read'],
-          scopes: ['identity.audit'],
+          permissions: ['platform:identity:read', 'platform:audit:read'],
+          scopes: ['platform.identity', 'platform.audit'],
           data_scopes: {},
         },
       },
@@ -105,23 +106,27 @@ async function search(wrapper: Wrapper) {
 describe('只读管理审计', () => {
   it('租户与平台分别使用固定命名空间和API，页面没有写入动作', async () => {
     let wrapper = await render()
-    expect(mockedRead).toHaveBeenCalledWith('tenant', '/audits?page=0&size=20')
+    expect(mockedRead).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/audits?page=0&size=20',
+    )
     expect(wrapper.text()).toContain('当前组织')
     wrapper.unmount()
     mockedRead.mockClear()
-    owner.realm = 'platform'
+    owner.targetTenant = undefined
     owner.me.principal_type = 'platform'
     owner.me.tenant_id = null
     owner.me.audiences['identity-service']!.permissions = ['platform:audit:read']
     wrapper = await render()
     expect(mockedRead).toHaveBeenCalledWith('platform', '/platform/audits?page=0&size=20')
-    expect(wrapper.text()).toContain('仅显示平台控制操作')
+    expect(wrapper.text()).toContain('显示平台控制操作')
     expect(mockedWrite).not.toHaveBeenCalled()
     wrapper.unmount()
   })
   it('权限与物理身份不匹配时不查询，不能用租户权限进入平台', async () => {
-    owner.realm = 'platform'
+    owner.targetTenant = undefined
     owner.me.principal_type = 'platform'
+    owner.me.audiences['identity-service'].permissions = ['identity:audit:read']
     const wrapper = await render()
     expect(mockedRead).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('无权读取')
@@ -164,11 +169,13 @@ describe('只读管理审计', () => {
     await button(wrapper, '下一页').trigger('click')
     await flushPromises()
     expect(mockedRead.mock.calls.at(-1)![1]).toBe(
-      '/audits?page=1&size=20&action=identity.role.updated',
+      '/platform/tenants/tenant-one/identity/audits?page=1&size=20&action=identity.role.updated',
     )
     await button(wrapper, '清除筛选').trigger('click')
     await flushPromises()
-    expect(mockedRead.mock.calls.at(-1)![1]).toBe('/audits?page=0&size=20')
+    expect(mockedRead.mock.calls.at(-1)![1]).toBe(
+      '/platform/tenants/tenant-one/identity/audits?page=0&size=20',
+    )
     wrapper.unmount()
   })
   it.each(['time', 'actor', 'action', 'target'])('非法筛选不发送新请求：%s', async (field) => {
@@ -238,7 +245,7 @@ describe('只读管理审计', () => {
         },
       ],
     })
-    owner.realm = 'platform'
+    owner.targetTenant = undefined
     owner.me.principal_type = 'platform'
     owner.me.tenant_id = null
     owner.me.audiences['identity-service']!.permissions = ['platform:audit:read']

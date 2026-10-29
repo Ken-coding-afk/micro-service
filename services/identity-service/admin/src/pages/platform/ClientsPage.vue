@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import TenantPicker from '../../components/TenantPicker.vue'
 import { accountContext } from '../../app/context'
 import { can } from '../../app/permissions'
 import { IdentityError, read, write } from '../../api/identity'
@@ -31,7 +32,7 @@ const form = reactive({
   name: '',
   principal_type: 'user',
   owner_tenant_id: '',
-  tenants: '',
+  tenants: [] as string[],
   audiences: '',
   scopes: '',
   redirects: '',
@@ -41,8 +42,7 @@ const form = reactive({
   status: 'ACTIVE',
 })
 const service = reactive({ name: '', audience: '' })
-const fixed = (item: OAuthClient) =>
-  item.principal_type === 'platform' || item.client_id.startsWith('identity-admin-')
+const fixed = (item: OAuthClient) => item.client_id.startsWith('identity-admin-')
 const lines = (value: string) => [...new Set(value.split(/[\s,]+/).filter(Boolean))]
 function fail(value: unknown) {
   error.value = value instanceof Error ? value.message : '操作失败，请核对当前状态。'
@@ -87,7 +87,7 @@ function begin(item: OAuthClient | null) {
     name: item?.name ?? '',
     principal_type: item?.principal_type ?? 'user',
     owner_tenant_id: item?.owner_tenant_id ?? '',
-    tenants: item?.allowed_tenant_ids.join('\n') ?? '',
+    tenants: [...(item?.allowed_tenant_ids ?? [])],
     audiences: item?.audiences.join('\n') ?? '',
     scopes: item?.scopes.join('\n') ?? '',
     redirects: item?.redirect_uris.join('\n') ?? '',
@@ -109,8 +109,9 @@ async function submit() {
     client_id: form.client_id.trim(),
     name: form.name.trim(),
     principal_type: form.principal_type,
-    owner_tenant_id: form.owner_tenant_id.trim() || null,
-    allowed_tenant_ids: lines(form.tenants),
+    owner_tenant_id:
+      form.principal_type === 'platform' ? null : form.owner_tenant_id.trim() || null,
+    allowed_tenant_ids: form.principal_type === 'platform' ? [] : form.tenants,
     audiences: lines(form.audiences),
     scopes: lines(form.scopes),
     redirect_uris: machine ? [] : lines(form.redirects),
@@ -238,7 +239,6 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="panel">
-    <h2>应用与机器身份</h2>
     <p class="muted">
       先登记服务 audience，再登记用户应用或机器身份。应用 scope 不代替用户角色授权。
     </p>
@@ -314,18 +314,25 @@ onBeforeUnmount(() => {
               >主体类型
               <select v-model="form.principal_type" :disabled="!!editing">
                 <option value="user">用户应用</option>
+                <option value="platform">平台管理应用</option>
                 <option value="service">机器身份</option>
               </select></label
             >
-            <label
+            <label v-if="form.principal_type !== 'platform'"
               >拥有租户 ID（项目级留空）<input v-model="form.owner_tenant_id" :readonly="!!editing"
             /></label>
-            <label>允许租户 ID（每行一个，来自租户管理）<textarea v-model="form.tenants" /></label>
+            <div v-if="form.principal_type !== 'platform'" class="full-width">
+              <h3>允许登录的租户</h3>
+              <TenantPicker v-model="form.tenants" :disabled="pending || blocked" />
+            </div>
+            <p v-else class="muted">
+              平台管理应用使用平台账号登录，不绑定业务租户；仍需管理员权限及对应平台 scope。
+            </p>
             <label>Audiences（每行一个）<textarea v-model="form.audiences" required /></label>
             <label
-              >Scopes（每行一个，来自业务权限清单）<textarea v-model="form.scopes" required />
+              >Scopes（每行一个，按应用类型登记）<textarea v-model="form.scopes" required />
             </label>
-            <template v-if="form.principal_type === 'user'"
+            <template v-if="form.principal_type !== 'service'"
               ><label>准确回调 URI <textarea v-model="form.redirects" required /></label
               ><label>退出回调 URI <textarea v-model="form.logouts" /></label
               ><label
@@ -391,12 +398,17 @@ fieldset {
   border: 0;
   padding: 0;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: start;
 }
 label {
+  align-content: start;
   display: grid;
   gap: 7px;
   font-size: 13px;
   color: #42516a;
+}
+.full-width {
+  grid-column: 1 / -1;
 }
 label:has(input[type='checkbox']) {
   display: flex;

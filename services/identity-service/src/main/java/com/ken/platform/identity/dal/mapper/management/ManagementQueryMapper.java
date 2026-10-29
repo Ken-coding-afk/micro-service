@@ -15,7 +15,17 @@ public interface ManagementQueryMapper {
       String displayName,
       String status,
       boolean mustChangePassword,
-      long version) {}
+      long version,
+      String realName,
+      String employeeNo,
+      String contactEmail,
+      String phone,
+      String avatarUrl,
+      String description,
+      java.time.Instant createdAt,
+      java.time.Instant updatedAt,
+      java.time.Instant lastLoginAt,
+      String groupNames) {}
 
   record RoleRow(
       UUID id,
@@ -43,7 +53,7 @@ public interface ManagementQueryMapper {
       String scopes) {}
 
   String USER_COLUMNS =
-      "u.id,u.normalized_username AS username,u.display_name AS \"displayName\",u.status,u.must_change_password AS \"mustChangePassword\",u.version";
+      "u.id,u.normalized_username AS username,u.display_name AS \"displayName\",u.status,u.must_change_password AS \"mustChangePassword\",u.version,u.real_name AS \"realName\",u.employee_no AS \"employeeNo\",u.contact_email AS \"contactEmail\",u.phone,u.avatar_url AS \"avatarUrl\",u.description,u.created_at AS \"createdAt\",u.updated_at AS \"updatedAt\",u.last_login_at AS \"lastLoginAt\",(SELECT string_agg(g.name,'、' ORDER BY g.sort,g.name) FROM sys_user_group_member m JOIN sys_user_group g ON g.tenant_id=m.tenant_id AND g.id=m.group_id WHERE m.tenant_id=u.tenant_id AND m.user_id=u.id) AS \"groupNames\"";
   String ROLE_COLUMNS =
       "r.id,r.code,r.name,r.status,r.protected AS \"protectedRole\",r.version,r.authorization_version AS \"authorizationVersion\",r.description";
 
@@ -51,10 +61,15 @@ public interface ManagementQueryMapper {
       "SELECT "
           + USER_COLUMNS
           + " FROM sys_user u WHERE u.tenant_id=#{tenant} "
-          + "AND (#{query}='' OR position(lower(#{query}) in lower(u.normalized_username || ' ' || u.display_name))>0) "
+          + "AND (#{query}='' OR position(lower(#{query}) in lower(u.normalized_username || ' ' || u.display_name || ' ' || coalesce(u.real_name,'') || ' ' || coalesce(u.employee_no,'')))>0) "
+          + "AND (#{status}='' OR u.status=#{status}) "
+          + "AND (CAST(#{group} AS uuid) IS NULL OR EXISTS (WITH RECURSIVE subtree AS (SELECT id FROM sys_user_group WHERE tenant_id=#{tenant} AND id=#{group} UNION ALL SELECT g.id FROM sys_user_group g JOIN subtree p ON g.parent_id=p.id WHERE g.tenant_id=#{tenant} AND #{descendants}) SELECT 1 FROM sys_user_group_member m JOIN subtree g ON g.id=m.group_id WHERE m.tenant_id=u.tenant_id AND m.user_id=u.id)) "
           + "ORDER BY u.normalized_username,u.id LIMIT #{limit} OFFSET #{offset}")
   List<UserRow> users(
       @Param("tenant") UUID tenant,
+      @Param("status") String status,
+      @Param("group") UUID group,
+      @Param("descendants") boolean descendants,
       @Param("query") String query,
       @Param("offset") int offset,
       @Param("limit") int limit);

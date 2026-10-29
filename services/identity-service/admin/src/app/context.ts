@@ -2,6 +2,7 @@ import type { InjectionKey } from 'vue'
 import type { Me, Realm } from '../api/identity'
 
 export interface AccountContext {
+  targetTenant?: string
   realm: Realm
   me: Me
   changed: () => Promise<void>

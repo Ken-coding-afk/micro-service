@@ -49,11 +49,12 @@ public interface SessionManagementMapper {
   @Insert(
       """
       INSERT INTO sys_auth_audit(actor_id,actor_type,tenant_id,action,target_id,result,request_id,details)
-      VALUES(#{actor},'TENANT',#{tenant},#{action},#{target},'SUCCESS',#{request},
+      VALUES(#{actor},#{actorType},#{tenant},#{action},#{target},'SUCCESS',#{request},
         jsonb_build_object('user_id',#{user}::text,'revoked',#{count}::integer))
       """)
   void audit(
       @Param("actor") UUID actor,
+      @Param("actorType") String actorType,
       @Param("tenant") UUID tenant,
       @Param("action") String action,
       @Param("target") String target,

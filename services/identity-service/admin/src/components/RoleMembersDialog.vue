@@ -1,21 +1,18 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { accountContext } from '../app/context'
-import { can } from '../app/permissions'
-import { IdentityError, read } from '../api/identity'
+import { canManage, useManagementApi } from '../app/management'
+import { IdentityError } from '../api/identity'
 import type { Page } from '../api/platform'
 import type { Role, TenantUser } from '../api/tenant'
 
 const props = defineProps<{ role: Role | null }>()
 const emit = defineEmits<{ closed: [] }>()
+const { read } = useManagementApi()
 const context = inject(accountContext)
 const allowed = computed(() => {
   const owner = context?.()
-  return (
-    owner?.realm === 'tenant' &&
-    can(owner.me, 'identity:role:read') &&
-    can(owner.me, 'identity:user:read')
-  )
+  return !!owner && canManage(owner, 'identity:role:read') && canManage(owner, 'identity:user:read')
 })
 const dialog = ref<HTMLDialogElement | null>(null)
 const rows = ref<TenantUser[]>([])

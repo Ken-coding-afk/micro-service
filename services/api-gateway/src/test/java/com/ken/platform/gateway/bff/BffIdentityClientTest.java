@@ -171,6 +171,18 @@ class BffIdentityClientTest {
   }
 
   @Test
+  void independentApplicationKeepsItsClientWithoutGainingMonitoringOrBffSession() {
+    mode = "wrong-client";
+    var service = identity(2);
+    var principal = service.application("external-opaque-token").block();
+    assertThat(principal.client()).isEqualTo("another-client");
+    assertThat(principal.monitoring()).isFalse();
+    assertThatThrownBy(() -> service.application("external-opaque-token", client).block())
+        .isInstanceOfSatisfying(
+            PlatformException.class, error -> assertThat(error.status()).isEqualTo(401));
+  }
+
+  @Test
   void inactiveWrongClientAndWrongPrincipalKindCannotBecomeAuthenticatedUser() {
     for (String value : List.of("inactive", "wrong-client", "wrong-type")) {
       mode = value;

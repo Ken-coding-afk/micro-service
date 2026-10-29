@@ -111,7 +111,7 @@ it('应用结果未知保留草稿且阻止重复写入，切换身份丢弃晚�
     .findAll('button')
     .find((x) => x.text() === '查询')!
     .trigger('click')
-  owner.value = { ...account([]), realm: 'tenant' }
+  owner.value = { ...account([]), realm: 'platform', targetTenant: 'tenant-one' }
   await flushPromises()
   resolve({ items: [client], has_more: false })
   await flushPromises()
@@ -174,4 +174,32 @@ it('租户不能读取平台应用或策略接口', async () => {
     wrapper.unmount()
   }
   expect(read).not.toHaveBeenCalled()
+})
+it('独立平台应用可编辑，只有内置管理客户端受保护', async () => {
+  const external = {
+    ...client,
+    client_id: 'external-admin',
+    principal_type: 'platform' as const,
+    allowed_tenant_ids: [],
+  }
+  vi.mocked(read).mockResolvedValue({
+    items: [external, { ...external, id: 'fixed', client_id: 'identity-admin-platform' }],
+    has_more: false,
+  })
+  const wrapper = mount(ClientsPage, {
+    global: {
+      provide: {
+        [accountContext as symbol]: () =>
+          account(['platform:client:read', 'platform:client:manage']),
+      },
+    },
+  })
+  await flushPromises()
+  const edit = wrapper.findAll('button').filter((button) => button.text() === '查看与编辑')
+  expect(edit).toHaveLength(1)
+  await edit[0]!.trigger('click')
+  expect(wrapper.find('[role=dialog]').text()).toContain('平台管理应用使用平台账号登录')
+  expect(wrapper.find('[role=dialog]').text()).toContain('准确回调 URI')
+  expect(wrapper.find('[role=dialog]').text()).not.toContain('允许登录的租户')
+  wrapper.unmount()
 })

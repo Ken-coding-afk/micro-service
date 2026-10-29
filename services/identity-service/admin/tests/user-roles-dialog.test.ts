@@ -40,6 +40,16 @@ beforeEach(() => {
   target = {
     id: 'target',
     username: 'learner',
+    real_name: null,
+    employee_no: null,
+    contact_email: null,
+    phone: null,
+    avatar_url: null,
+    description: null,
+    created_at: '2026-10-28T00:00:00Z',
+    updated_at: '2026-10-28T00:00:00Z',
+    last_login_at: null,
+    group_names: null,
     display_name: '学员',
     status: 'ACTIVE',
     must_change_password: false,
@@ -48,18 +58,19 @@ beforeEach(() => {
   roles = [role('old-role', 2), role('new-role', 8), role('third-role', 5)]
   baseline = { user_id: target.id, version: 4, roles: [structuredClone(roles[0])] }
   owner = {
-    realm: 'tenant',
+    realm: 'platform',
+    targetTenant: 'tenant-one',
     me: {
       view: 'APPLICATION_EFFECTIVE',
       sub: 'manager',
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
+      principal_type: 'platform',
+      tenant_id: null,
+      client_id: 'identity-admin-platform',
       profile: {},
       audiences: {
         'identity-service': {
           scopes: ['identity.roles', 'identity.users'],
-          permissions: ['identity:role:assign', 'identity:user:read'],
+          permissions: ['platform:identity:manage', 'platform:identity:read'],
           data_scopes: {},
         },
       },
@@ -69,7 +80,8 @@ beforeEach(() => {
     failed: vi.fn(),
   }
   mockedRead.mockImplementation(async (_realm, path) => {
-    if (path.startsWith('/users/')) return structuredClone(baseline)
+    if (path.startsWith('/platform/tenants/tenant-one/identity/users/'))
+      return structuredClone(baseline)
     const params = new URLSearchParams(path.split('?')[1]),
       page = Number(params.get('page'))
     const q = params.get('q') ?? ''
@@ -141,7 +153,7 @@ async function click(wrapper: Awaited<ReturnType<typeof screen>>['wrapper'], tex
 const checkbox = (code: string) => `input[aria-label="分配角色 ${code}"]`
 describe('用户角色分配', () => {
   it('缺少分配权不能读取角色选项或提交', async () => {
-    owner.me.audiences['identity-service'].permissions = ['identity:user:read']
+    owner.me.audiences['identity-service'].permissions = ['platform:identity:read']
     const { wrapper } = await screen()
     expect(mockedRead).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('当前账号无权分配用户角色')
@@ -160,8 +172,8 @@ describe('用户角色分配', () => {
     expect(wrapper.text()).not.toContain('移除 · old-role名称')
     await click(wrapper, '确认分配角色')
     expect(mockedWrite).toHaveBeenCalledWith(
-      'tenant',
-      '/users/target/roles',
+      'platform',
+      '/platform/tenants/tenant-one/identity/users/target/roles',
       {
         user_version: 4,
         roles: [
@@ -300,7 +312,9 @@ describe('用户角色分配', () => {
     finish({ user_id: 'target', version: 4, roles: [roles[0]] })
     await flushPromises()
     expect(
-      mockedRead.mock.calls.some((call) => call[1].startsWith('/roles?assignable_to=target&')),
+      mockedRead.mock.calls.some((call) =>
+        call[1].startsWith('/platform/tenants/tenant-one/identity/roles?assignable_to=target&'),
+      ),
     ).toBe(false)
     expect(wrapper.text()).toContain('用户版本 10')
     expect(wrapper.text()).not.toContain('old-role名称')

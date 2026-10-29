@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { accountContext } from '../app/context'
-import { can } from '../app/permissions'
-import { IdentityError, read, write } from '../api/identity'
+import { canManage, useManagementApi } from '../app/management'
+import { IdentityError } from '../api/identity'
 import {
   managementRestriction,
   type Role,
@@ -13,13 +13,14 @@ import {
 } from '../api/tenant'
 const props = defineProps<{ user: TenantUser | null }>()
 const emit = defineEmits<{ closed: []; changed: [] }>()
+const { read, write } = useManagementApi()
 const context = inject(accountContext)
 const owner = computed(() => context?.() ?? null)
 const allowed = computed(
   () =>
-    owner.value?.realm === 'tenant' &&
-    can(owner.value.me, 'identity:role:assign') &&
-    can(owner.value.me, 'identity:user:read'),
+    !!owner.value &&
+    canManage(owner.value, 'identity:role:assign') &&
+    canManage(owner.value, 'identity:user:read'),
 )
 const dialog = ref<HTMLDialogElement | null>(null)
 const baseline = ref<UserRoles | null>(null)
@@ -255,10 +256,12 @@ watch(allowed, (value) => {
     emit('closed')
   }
 })
-onBeforeRouteLeave(() => {
+const beforeNavigation = () => {
   if (pending.value || (props.user && !discardAllowed())) return false
   return true
-})
+}
+onBeforeRouteLeave(beforeNavigation)
+onBeforeRouteUpdate(beforeNavigation)
 onBeforeUnmount(() => {
   generation++
   clear()

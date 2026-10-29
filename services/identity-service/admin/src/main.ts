@@ -5,7 +5,9 @@ import MonitoringPage from './pages/platform/MonitoringPage.vue'
 import AccountPage from './pages/account/AccountPage.vue'
 import PlatformAccountsPage from './pages/platform/PlatformAccountsPage.vue'
 import UsersPage from './pages/users/UsersPage.vue'
-import PermissionsPage from './pages/permissions/PermissionsPage.vue'
+import PermissionCatalogPage from './pages/permissions/PermissionCatalogPage.vue'
+import GroupsPage from './pages/groups/GroupsPage.vue'
+import RoleDetailsPage from './pages/roles/RoleDetailsPage.vue'
 import RolesPage from './pages/roles/RolesPage.vue'
 import AuditsPage from './pages/audit/AuditsPage.vue'
 import SessionsPage from './pages/sessions/SessionsPage.vue'
@@ -17,6 +19,11 @@ const router = createRouter({
   history: createWebHistory('/identity/admin/'),
   routes: [
     {
+      path: '/platform/tenants/:managementTenant/identity/roles/:roleId',
+      component: RoleDetailsPage,
+      meta: { title: '角色详情', section: '项目管理' },
+    },
+    {
       path: '/platform/monitoring',
       component: MonitoringPage,
       meta: { title: '服务监控', section: '平台管理' },
@@ -24,58 +31,52 @@ const router = createRouter({
     {
       path: '/platform/clients',
       component: ClientsPage,
-      meta: { title: '应用与机器身份', section: '平台管理' },
+      meta: { title: '接入应用', section: '平台管理' },
     },
     {
       path: '/platform/security',
       component: SecurityPolicyPage,
       meta: { title: '项目安全策略', section: '平台管理' },
     },
+    {
+      path: '/platform/tenants/:managementTenant/identity/users',
+      component: UsersPage,
+      meta: { title: '用户管理', section: '项目管理' },
+    },
+    {
+      path: '/platform/tenants/:managementTenant/identity/roles',
+      component: RolesPage,
+      meta: { title: '角色管理', section: '项目管理' },
+    },
+    {
+      path: '/platform/permissions',
+      component: PermissionCatalogPage,
+      meta: { title: '权限管理', section: '项目管理' },
+    },
+    {
+      path: '/platform/tenants/:managementTenant/identity/groups',
+      component: GroupsPage,
+      meta: { title: '用户组', section: '项目管理' },
+    },
+    {
+      path: '/platform/tenants/:managementTenant/identity/sessions',
+      component: SessionsPage,
+      meta: { title: '会话管理', section: '项目管理' },
+    },
+    {
+      path: '/platform/tenants/:managementTenant/identity/audits',
+      component: AuditsPage,
+      meta: { title: '租户审计', section: '项目管理' },
+    },
     { path: '/', redirect: '/account' },
     { path: '/account', component: AccountPage },
     {
-      path: '/sessions',
-      component: SessionsPage,
-      meta: {
-        title: '会话管理',
-        section: '安全管理',
-        description: '查看组织内可管理的登录会话，明确撤销指定或全部授权。',
-      },
-    },
-    {
-      path: '/audits',
+      path: '/platform/audits',
       component: AuditsPage,
       meta: {
-        title: '管理审计',
+        title: '审计日志',
         section: '安全管理',
         description: '按当前身份范围查询管理与认证记录，查看脱敏差异。',
-      },
-    },
-    {
-      path: '/roles',
-      component: RolesPage,
-      meta: {
-        title: '角色管理',
-        section: '租户管理',
-        description: '维护角色基本资料，按真实管理边界复制和启停角色。',
-      },
-    },
-    {
-      path: '/permissions',
-      component: PermissionsPage,
-      meta: {
-        title: '权限与授权',
-        section: '租户管理',
-        description: '按服务查看资源操作，核对角色授权与数据范围。',
-      },
-    },
-    {
-      path: '/users',
-      component: UsersPage,
-      meta: {
-        title: '用户管理',
-        section: '租户管理',
-        description: '管理当前组织内的账号、资料与授权状态。',
       },
     },
     {

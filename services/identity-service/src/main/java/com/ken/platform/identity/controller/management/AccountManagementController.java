@@ -24,6 +24,19 @@ public final class AccountManagementController {
     }
   }
 
+  public record NewUser(
+      String username,
+      @JsonProperty("display_name") String displayName,
+      @JsonProperty("real_name") String realName,
+      @JsonProperty("employee_no") String employeeNo,
+      @JsonProperty("contact_email") String contactEmail,
+      String phone,
+      @JsonProperty("avatar_url") String avatarUrl,
+      String description,
+      java.util.List<com.ken.platform.identity.service.group.UserGroupService.Reference> groups,
+      java.util.List<com.ken.platform.identity.service.group.UserGroupService.Reference> roles)
+      implements UserGroupController.Command {}
+
   public record NewTenant(
       String code,
       String name,
@@ -103,9 +116,22 @@ public final class AccountManagementController {
     this.queries = queries;
   }
 
-  @PostMapping("/users")
-  ResponseEntity<Map<String, Object>> createUser(@RequestBody NewAccount command) {
-    var result = creation.createUser(command.username(), command.displayName());
+  @PostMapping({"/users", "/platform/tenants/{managementTenant}/identity/users"})
+  ResponseEntity<Map<String, Object>> createUser(@RequestBody NewUser command) {
+    var result =
+        creation.createUser(
+            new AccountCreationService.UserCommand(
+                command.username(),
+                new com.ken.platform.identity.service.user.UserProfileService.Fields(
+                    command.displayName(),
+                    command.realName(),
+                    command.employeeNo(),
+                    command.contactEmail(),
+                    command.phone(),
+                    command.avatarUrl(),
+                    command.description()),
+                command.groups(),
+                command.roles()));
     return IdentityApiResponses.ok(
         new IssuedAccount(result.id(), reveal(result.credential()), result.replayed()));
   }

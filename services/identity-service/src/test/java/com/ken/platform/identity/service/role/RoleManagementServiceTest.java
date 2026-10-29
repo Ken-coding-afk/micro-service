@@ -109,9 +109,9 @@ class RoleManagementServiceTest {
     data(
         () -> {
           jdbc.update(
-              "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('identity:role:manage','管理角色','identity-service','TENANT','identity','身份','role','角色','manage',ARRAY['TENANT'],'identity.roles') ON CONFLICT DO NOTHING");
+              "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','identity:role:manage','管理角色','identity-service','TENANT','identity','身份','role','角色','manage',ARRAY['TENANT'],'identity.roles') ON CONFLICT DO NOTHING");
           jdbc.update(
-              "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('test:copy','复制测试','document-service','TENANT','test','测试','test-copy','复制测试','read',ARRAY['SELF','TENANT'],'documents.copy') ON CONFLICT (code) DO UPDATE SET status='ACTIVE'");
+              "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','test:copy','复制测试','document-service','TENANT','test','测试','test-copy','复制测试','read',ARRAY['SELF','TENANT'],'documents.copy') ON CONFLICT (code) DO UPDATE SET status='ACTIVE'");
           jdbc.update(
               "INSERT INTO sys_user(id,tenant_id,normalized_username,display_name,password_hash,status,must_change_password) VALUES (?,?,?,'测试管理员','{bcrypt}fixture','ACTIVE',false)",
               actor,
@@ -367,6 +367,7 @@ class RoleManagementServiceTest {
         .when(roleSql)
         .audit(
             any(UUID.class),
+            eq("TENANT"),
             eq(tenant),
             eq("identity.role.updated"),
             eq(role.id().toString()),
@@ -490,6 +491,7 @@ class RoleManagementServiceTest {
         .when(roleSql)
         .audit(
             any(UUID.class),
+            eq("TENANT"),
             eq(tenant),
             eq("identity.role.deleted"),
             eq(source.toString()),

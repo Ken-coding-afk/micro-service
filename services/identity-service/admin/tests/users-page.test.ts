@@ -26,24 +26,39 @@ beforeEach(() => {
   user = {
     id: 'user-1',
     username: 'learner',
+    real_name: null,
+    employee_no: null,
+    contact_email: null,
+    phone: null,
+    avatar_url: null,
+    description: null,
+    created_at: '2026-10-28T00:00:00Z',
+    updated_at: '2026-10-28T00:00:00Z',
+    last_login_at: null,
+    group_names: null,
     display_name: '原姓名',
     status: 'ACTIVE',
     must_change_password: false,
     version: 2,
   }
   owner = {
-    realm: 'tenant',
+    realm: 'platform',
+    targetTenant: 'tenant-one',
     me: {
       view: 'APPLICATION_EFFECTIVE',
       sub: 'manager',
-      principal_type: 'user',
-      tenant_id: 'tenant-one',
-      client_id: 'identity-admin-tenant',
+      principal_type: 'platform',
+      tenant_id: null,
+      client_id: 'identity-admin-platform',
       profile: {},
       audiences: {
         'identity-service': {
           scopes: ['identity.users'],
-          permissions: ['identity:user:read', 'identity:user:manage', 'identity:permission:read'],
+          permissions: [
+            'platform:identity:read',
+            'platform:identity:manage',
+            'platform:identity:read',
+          ],
           data_scopes: {},
         },
       },
@@ -85,7 +100,7 @@ async function screen() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: UsersPage },
-      { path: '/sessions', component: { render: () => null } },
+      { path: '/platform/tenants/tenant-one/identity/sessions', component: { render: () => null } },
     ],
   })
   await router.push('/')
@@ -113,10 +128,12 @@ async function newUser(wrapper: Awaited<ReturnType<typeof screen>>) {
 }
 describe('租户用户管理', () => {
   it('独立会话读取权显示固定目标链接，不推导会话撤销权限', async () => {
-    owner.me.audiences['identity-service'].permissions.push('identity:session:read')
+    owner.me.audiences['identity-service'].permissions.push('platform:identity:read')
     const wrapper = await screen()
     const link = wrapper.findAll('a').find((link) => link.text() === '查看会话')
-    expect(link?.attributes('href')).toBe('/sessions?user_id=' + user.id)
+    expect(link?.attributes('href')).toBe(
+      '/platform/tenants/tenant-one/identity/sessions?user_id=' + user.id,
+    )
     expect(mockedWrite).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -148,16 +165,16 @@ describe('租户用户管理', () => {
     expect(mockedWrite).not.toHaveBeenCalled()
     wrapper.unmount()
   })
-  it('拒绝平台入口读取；只读用户没有创建或编辑入口', async () => {
-    owner.realm = 'platform'
+  it('未选择目标时拒绝读取；只读管理员没有创建或编辑入口', async () => {
+    owner.targetTenant = undefined
     let wrapper = await screen()
     expect(mockedRead).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('当前账号无权读取租户用户')
     wrapper.unmount()
-    owner.realm = 'tenant'
-    owner.me.audiences['identity-service'].permissions = ['identity:user:read']
+    owner.targetTenant = 'tenant-one'
+    owner.me.audiences['identity-service'].permissions = ['platform:identity:read']
     wrapper = await screen()
-    expect(wrapper.findAll('tbody button')).toHaveLength(0)
+    expect(wrapper.findAll('tbody button').map((button) => button.text())).toEqual(['有效权限'])
     await wrapper.get('dialog form').trigger('submit')
     expect(mockedWrite).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -176,9 +193,20 @@ describe('租户用户管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     expect(mockedWrite).toHaveBeenCalledTimes(1)
     expect(mockedWrite).toHaveBeenCalledWith(
-      'tenant',
-      '/users',
-      { username: 'newlearner', display_name: '新学员' },
+      'platform',
+      '/platform/tenants/tenant-one/identity/users',
+      {
+        username: 'newlearner',
+        display_name: '新学员',
+        real_name: '',
+        employee_no: '',
+        contact_email: '',
+        phone: '',
+        avatar_url: '',
+        description: '',
+        groups: [],
+        roles: [],
+      },
       'POST',
       expect.any(String),
     )
@@ -216,9 +244,18 @@ describe('租户用户管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
     expect(mockedWrite).toHaveBeenLastCalledWith(
-      'tenant',
-      '/users/user-1/profile',
-      { version: 2, display_name: '修改姓名' },
+      'platform',
+      '/platform/tenants/tenant-one/identity/users/user-1/profile',
+      {
+        version: 2,
+        display_name: '修改姓名',
+        real_name: '',
+        employee_no: '',
+        contact_email: '',
+        phone: '',
+        avatar_url: '',
+        description: '',
+      },
       'PUT',
     )
     user = { ...user, version: 3, display_name: '修改姓名' }
@@ -227,8 +264,8 @@ describe('租户用户管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
     expect(mockedWrite).toHaveBeenLastCalledWith(
-      'tenant',
-      '/users/user-1',
+      'platform',
+      '/platform/tenants/tenant-one/identity/users/user-1',
       { version: 3, status: 'DISABLED' },
       'PUT',
     )
@@ -273,9 +310,18 @@ describe('租户用户管理', () => {
     await wrapper.get('dialog form').trigger('submit')
     await flushPromises()
     expect(mockedWrite).toHaveBeenLastCalledWith(
-      'tenant',
-      '/users/user-1/profile',
-      { version: 8, display_name: '我的草稿' },
+      'platform',
+      '/platform/tenants/tenant-one/identity/users/user-1/profile',
+      {
+        version: 8,
+        display_name: '我的草稿',
+        real_name: '',
+        employee_no: '',
+        contact_email: '',
+        phone: '',
+        avatar_url: '',
+        description: '',
+      },
       'PUT',
     )
     wrapper.unmount()
@@ -314,6 +360,45 @@ describe('租户用户管理', () => {
     expect(wrapper.text()).toContain('SELF')
     expect(wrapper.text()).toContain('业务对象归属仍由业务服务判断')
     expect(mockedWrite).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('平台用户页使用显式目标路径签发一次性重置凭证，关闭后清除', async () => {
+    owner.realm = 'platform'
+    owner.targetTenant = 'tenant-a'
+    owner.me.principal_type = 'platform'
+    owner.me.tenant_id = null
+    owner.me.client_id = 'identity-admin-platform'
+    owner.me.audiences['identity-service'].permissions = [
+      'platform:identity:read',
+      'platform:identity:manage',
+    ]
+    mockedWrite.mockResolvedValue({
+      reset_token: 'one-time-reset-fixture',
+      expires_at: '2030-01-01T00:15:00Z',
+    })
+    const wrapper = await screen()
+    expect(mockedRead).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-a/identity/users?page=0&size=20&q=&status=&include_descendants=false',
+    )
+    await click(wrapper, '重置密码')
+    expect(wrapper.find('dialog[open]').exists()).toBe(true)
+    await click(wrapper, '签发重置凭证')
+    expect(mockedWrite).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-a/identity/users/user-1/password-reset',
+      { version: 2 },
+      'POST',
+      expect.any(String),
+    )
+    expect(wrapper.get<HTMLInputElement>('#reset-credential').element.type).toBe('password')
+    expect(wrapper.get<HTMLInputElement>('#reset-credential').element.value).toBe(
+      'one-time-reset-fixture',
+    )
+    expect(owner.me.tenant_id).toBeNull()
+    await click(wrapper, '已交付，关闭')
+    expect(wrapper.find('#reset-credential').exists()).toBe(false)
+    expect(sessionStorage.length).toBe(0)
     wrapper.unmount()
   })
 })

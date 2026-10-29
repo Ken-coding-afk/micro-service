@@ -77,12 +77,13 @@ public final class RoleAssignmentService {
       }
     }
     UUID actor = authorization.actorFor(OPERATION);
-    return transactions.execute(
+    return authorization.execute(
+        transactions,
         () -> {
           var context = CallContexts.current();
-          UUID tenant = context.tenantId();
-          users.lockCatalog();
-          var tenantRow = users.lockTenant(tenant);
+          UUID tenant = authorization.tenantId();
+          authorization.lockCatalog();
+          var tenantRow = authorization.lockTenant(tenant);
           if (tenantRow == null
               || !tenantRow.status().equals("ACTIVE")
               || tenantRow.expiresAt() != null
@@ -90,7 +91,7 @@ public final class RoleAssignmentService {
             throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
           }
           Set<UUID> previous = Set.copyOf(roles.memberRoles(tenant, target));
-          var all = new HashSet<>(roles.memberRoles(tenant, actor));
+          var all = new HashSet<>(authorization.actorRoles(tenant, actor, roles));
           all.addAll(previous);
           all.addAll(proposed.keySet());
           // 至少包含 actor 的管理员角色；空集合意味着无管理身份，仍先锁用户再失败关闭。
@@ -98,9 +99,7 @@ public final class RoleAssignmentService {
               all.isEmpty()
                   ? List.<RolePermissionMapper.RoleRow>of()
                   : roles.lockRoles(tenant, List.copyOf(all));
-          var actors =
-              users.lockUsers(
-                  tenant, actor.equals(target) ? List.of(actor) : List.of(actor, target));
+          var actors = authorization.lockUsers(tenant, authorization.userIds(actor, target));
           authorization.requireProtectedAdministrator(tenant, actor, OPERATION, actors);
           var user =
               actors.stream()
@@ -165,6 +164,7 @@ public final class RoleAssignmentService {
           }
           assignments.audit(
               actor,
+              authorization.actorType(),
               tenant,
               target.toString(),
               context.requestId(),

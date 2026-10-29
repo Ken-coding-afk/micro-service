@@ -64,7 +64,9 @@ public final class BrowserSessionGuard {
           } else response.setStatus(401);
           return;
         }
-        if (auth != null && auth.getPrincipal() instanceof PasswordLoginService.Identity identity) {
+        if (!path.equals("/identity/password/reset")
+            && auth != null
+            && auth.getPrincipal() instanceof PasswordLoginService.Identity identity) {
           try {
             var session = request.getSession(false);
             service.verifyBrowserBinding(session == null ? null : session.getId());

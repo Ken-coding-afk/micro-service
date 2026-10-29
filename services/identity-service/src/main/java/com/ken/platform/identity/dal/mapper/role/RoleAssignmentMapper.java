@@ -29,10 +29,11 @@ public interface RoleAssignmentMapper {
   @Insert(
       """
       INSERT INTO sys_auth_audit(actor_id,actor_type,tenant_id,action,target_id,result,request_id,details)
-      VALUES(#{actor},'TENANT',#{tenant},'identity.user.roles',#{target},'SUCCESS',#{request},CAST(#{details} AS jsonb))
+      VALUES(#{actor},#{actorType},#{tenant},'identity.user.roles',#{target},'SUCCESS',#{request},CAST(#{details} AS jsonb))
       """)
   void audit(
       @Param("actor") UUID actor,
+      @Param("actorType") String actorType,
       @Param("tenant") UUID tenant,
       @Param("target") String target,
       @Param("request") String request,

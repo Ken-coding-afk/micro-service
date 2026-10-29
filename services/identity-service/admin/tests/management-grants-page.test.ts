@@ -28,22 +28,23 @@ it('已退役入口不再出现在管理员页面，也不会请求旧 API', asy
       plugins: [router],
       provide: {
         [accountContext as symbol]: () => ({
-          realm: 'tenant',
+          realm: 'platform',
+          targetTenant: 'tenant-one',
           me: {
             view: 'APPLICATION_EFFECTIVE',
             sub: 'admin',
-            principal_type: 'user',
-            tenant_id: 'tenant',
-            client_id: 'identity-admin-tenant',
+            principal_type: 'platform',
+            tenant_id: null,
+            client_id: 'identity-admin-platform',
             profile: {},
             audiences: {
               'identity-service': {
                 scopes: ['identity.roles', 'identity.users', 'identity.permissions'],
                 permissions: [
-                  'identity:role:read',
-                  'identity:role:manage',
-                  'identity:user:read',
-                  'identity:permission:read',
+                  'platform:identity:read',
+                  'platform:identity:manage',
+                  'platform:identity:read',
+                  'platform:identity:read',
                 ],
                 data_scopes: {},
               },

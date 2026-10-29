@@ -42,7 +42,7 @@ it('does not request a dashboard without permission', async () => {
 it('keeps an unavailable monitor out of the iframe', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: false, status: 404 })),
+    vi.fn(async () => ({ ok: true, json: async () => ({ data: { enabled: false } }) })),
   )
   const page = mount(MonitoringPage, {
     global: { provide: { [accountContext as symbol]: () => owner(true) } },
@@ -55,12 +55,38 @@ it('keeps an unavailable monitor out of the iframe', async () => {
 it('embeds only the same-origin protected dashboard', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({ ok: true, status: 200 })),
+    vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        data: url.endsWith('/availability')
+          ? { enabled: true }
+          : {
+              items: [
+                {
+                  service: 'identity-service',
+                  instance: 'one',
+                  healthy: true,
+                  requests_per_second: 2,
+                  error_ratio: 0,
+                  p95_seconds: 0.125,
+                },
+              ],
+              sampled_at: '2026-10-28T12:00:00Z',
+            },
+      }),
+    })),
   )
   const page = mount(MonitoringPage, {
     global: { provide: { [accountContext as symbol]: () => owner(true) } },
   })
   await flushPromises()
+  expect(page.text()).toContain('identity-service')
+  expect(page.text()).toContain('125.00 ms')
+  expect(page.find('iframe').exists()).toBe(false)
+  await page
+    .findAll('button')
+    .find((button) => button.text() === '展开详细图表')!
+    .trigger('click')
   expect(page.find('iframe').attributes('src')).toMatch(/^\/bff\/identity\/platform\/monitoring\//)
   page.unmount()
 })

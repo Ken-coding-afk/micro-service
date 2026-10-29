@@ -164,7 +164,8 @@ class AccountCreationServiceTest {
             audits(),
             encoder,
             clock,
-            new com.ken.platform.identity.service.security.RecentAuthentication(policies, clock)));
+            new com.ken.platform.identity.service.security.RecentAuthentication(policies, clock)),
+        new com.ken.platform.identity.dal.mapper.group.UserGroupRepository(jdbc));
   }
 
   private void seedAdmin(UUID tenant, UUID actor, UUID role) {
@@ -305,7 +306,14 @@ class AccountCreationServiceTest {
         actor,
         request,
         "identity:user:manage",
-        () -> service.createUser(username, "测试用户"));
+        () ->
+            service.createUser(
+                new AccountCreationService.UserCommand(
+                    username,
+                    new com.ken.platform.identity.service.user.UserProfileService.Fields(
+                        "测试用户", null, null, null, null, null, null),
+                    List.of(),
+                    List.of())));
   }
 
   private static void failure(
@@ -341,6 +349,9 @@ class AccountCreationServiceTest {
                       String.class))
               .containsExactly(
                   "identity:audit:read",
+                  "identity:group:assign",
+                  "identity:group:manage",
+                  "identity:group:read",
                   "identity:permission:read",
                   "identity:role:assign",
                   "identity:role:manage",
@@ -429,7 +440,7 @@ class AccountCreationServiceTest {
     assertThat(again.replayed()).isTrue();
     assertThat(again.credential()).isNull();
     failure("REQUEST_ID_CONFLICT", 409, () -> user(tenantA, adminA, "idempotent", prefix + "-two"));
-    failure("USERNAME_CONFLICT", 409, () -> user(tenantA, adminA, "new-request", prefix + "-one"));
+    failure("ACCOUNT_CONFLICT", 409, () -> user(tenantA, adminA, "new-request", prefix + "-one"));
     var created = tenant("tenant-idempotent", "-repeat");
     secrets.add(created.credential());
     assertThat(tenant("tenant-idempotent", "-repeat").credential()).isNull();
@@ -622,7 +633,16 @@ class AccountCreationServiceTest {
                     "outer-transaction",
                     "identity:user:manage",
                     () ->
-                        transactions.execute(() -> service.createUser(prefix + "-nested", "嵌套创建"))))
+                        transactions.execute(
+                            () ->
+                                service.createUser(
+                                    new AccountCreationService.UserCommand(
+                                        prefix + "-nested",
+                                        new com.ken.platform.identity.service.user
+                                            .UserProfileService.Fields(
+                                            "嵌套创建", null, null, null, null, null, null),
+                                        List.of(),
+                                        List.of())))))
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("账号创建必须通过独立事务入口执行");
     assertThat(
@@ -688,7 +708,7 @@ class AccountCreationServiceTest {
                 "platform:admin:manage",
                 () -> service.createPlatformAdministrator(prefix, "fixture-private-input")));
     failure(
-        "USERNAME_CONFLICT",
+        "ACCOUNT_CONFLICT",
         409,
         () ->
             authorized(
@@ -697,7 +717,14 @@ class AccountCreationServiceTest {
                 adminA,
                 "failed-user-create",
                 "identity:user:manage",
-                () -> service.createUser(prefix + "-admin", "fixture-private-input")));
+                () ->
+                    service.createUser(
+                        new AccountCreationService.UserCommand(
+                            prefix + "-admin",
+                            new com.ken.platform.identity.service.user.UserProfileService.Fields(
+                                "fixture-private-input", null, null, null, null, null, null),
+                            List.of(),
+                            List.of()))));
     var rows =
         jdbc.queryForList(
             "SELECT action,result,details::text AS details FROM sys_auth_audit WHERE actor_id IN (?,?) AND request_id IN ('failed-tenant-create','failed-platform-create','failed-user-create') ORDER BY action",
@@ -746,7 +773,7 @@ class AccountCreationServiceTest {
             .map(row -> row.code())
             .collect(java.util.stream.Collectors.toSet());
     assertThat(catalogAfter.stream().filter(row -> builtinCodes.contains(row.code())))
-        .hasSize(25)
+        .hasSize(32)
         .containsAll(BuiltinPermissionCatalog.entries());
     assertThat(
             jdbc.queryForObject(

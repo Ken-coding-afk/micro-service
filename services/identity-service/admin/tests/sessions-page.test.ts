@@ -30,17 +30,18 @@ const session = {
 beforeEach(() => {
   vi.clearAllMocks()
   owner = reactive({
-    realm: 'tenant',
+    realm: 'platform',
+    targetTenant: 'tenant-one',
     me: {
       view: 'APPLICATION_EFFECTIVE',
       sub: 'manager',
-      principal_type: 'user',
-      tenant_id: 'tenant',
-      client_id: 'identity-admin-tenant',
+      principal_type: 'platform',
+      tenant_id: null,
+      client_id: 'identity-admin-platform',
       profile: {},
       audiences: {
         'identity-service': {
-          permissions: ['identity:session:read', 'identity:session:manage'],
+          permissions: ['platform:identity:read', 'platform:identity:manage'],
           scopes: ['identity.sessions'],
           data_scopes: {},
         },
@@ -67,11 +68,11 @@ async function render(query = '') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/sessions', component: SessionsPage },
+      { path: '/platform/tenants/tenant-one/identity/sessions', component: SessionsPage },
       { path: '/account', component: { render: () => null } },
     ],
   })
-  await router.push('/sessions' + query)
+  await router.push('/platform/tenants/tenant-one/identity/sessions' + query)
   await router.isReady()
   const wrapper = mount(
     { render: () => h(RouterView) },
@@ -90,24 +91,25 @@ function button(wrapper: Wrapper, name: string) {
   return found
 }
 describe('管理员会话治理', () => {
-  it('平台不读取租户会话，缺少独立读取权不请求', async () => {
-    owner.realm = 'platform'
-    owner.me.principal_type = 'platform'
+  it('未选择租户或缺少读取权时不请求', async () => {
+    owner.targetTenant = undefined
     let view = await render()
     expect(mockedRead).not.toHaveBeenCalled()
     expect(view.wrapper.text()).toContain('个人账号页')
     view.wrapper.unmount()
-    owner.realm = 'tenant'
-    owner.me.principal_type = 'user'
-    owner.me.audiences['identity-service']!.permissions = ['identity:session:manage']
+    owner.targetTenant = 'tenant-one'
+    owner.me.audiences['identity-service']!.permissions = ['platform:identity:manage']
     view = await render()
     expect(mockedRead).not.toHaveBeenCalled()
     view.wrapper.unmount()
   })
   it('只读权可以查询账号、应用和时间摘要，不能发起撤销', async () => {
-    owner.me.audiences['identity-service']!.permissions = ['identity:session:read']
+    owner.me.audiences['identity-service']!.permissions = ['platform:identity:read']
     const { wrapper } = await render()
-    expect(mockedRead).toHaveBeenCalledWith('tenant', '/sessions?page=0&size=20')
+    expect(mockedRead).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/sessions?page=0&size=20',
+    )
     expect(wrapper.text()).toContain('学习者')
     expect(wrapper.text()).toContain('client-one')
     expect(wrapper.text()).toContain('当前仅有读取权限')
@@ -123,14 +125,18 @@ describe('管理员会话治理', () => {
       items: [structuredClone(session)],
     }))
     const { wrapper } = await render('?user_id=' + target)
-    expect(mockedRead.mock.calls[0]?.[1]).toBe('/sessions?page=0&size=20&user_id=' + target)
+    expect(mockedRead.mock.calls[0]?.[1]).toBe(
+      '/platform/tenants/tenant-one/identity/sessions?page=0&size=20&user_id=' + target,
+    )
     await wrapper.get('input').setValue('not-a-uuid')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(mockedRead).toHaveBeenCalledTimes(1)
     await button(wrapper, '下一页').trigger('click')
     await flushPromises()
-    expect(mockedRead.mock.calls.at(-1)?.[1]).toBe('/sessions?page=1&size=20&user_id=' + target)
+    expect(mockedRead.mock.calls.at(-1)?.[1]).toBe(
+      '/platform/tenants/tenant-one/identity/sessions?page=1&size=20&user_id=' + target,
+    )
     wrapper.unmount()
   })
   it('取消确认不写，指定撤销只使用服务端会话ID和空命令；成功后重新读取', async () => {
@@ -140,7 +146,10 @@ describe('管理员会话治理', () => {
     expect(mockedWrite).not.toHaveBeenCalled()
     await button(wrapper, '撤销会话').trigger('click')
     await flushPromises()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/sessions/session-one:revoke')
+    expect(mockedWrite).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/sessions/session-one:revoke',
+    )
     expect(mockedRead).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('指定会话撤销已完成')
     wrapper.unmount()
@@ -155,7 +164,10 @@ describe('管理员会话治理', () => {
     const { wrapper } = await render()
     await button(wrapper, '用户全端退出').trigger('click')
     await flushPromises()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/users/manager:sign-out-all')
+    expect(mockedWrite).toHaveBeenCalledWith(
+      'platform',
+      '/platform/tenants/tenant-one/identity/users/manager:sign-out-all',
+    )
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('当前管理入口退出'))
     wrapper.unmount()
   })
@@ -172,8 +184,8 @@ describe('管理员会话治理', () => {
     await button(wrapper, '撤销会话').trigger('click')
     expect(mockedWrite).toHaveBeenCalledTimes(1)
     await router.push('/account')
-    expect(router.currentRoute.value.path).toBe('/sessions')
-    await router.push('/sessions?user_id=' + target)
+    expect(router.currentRoute.value.path).toBe('/platform/tenants/tenant-one/identity/sessions')
+    await router.push('/platform/tenants/tenant-one/identity/sessions?user_id=' + target)
     expect(router.currentRoute.value.query.user_id).toBeUndefined()
     finish({ revoked: true })
     await flushPromises()

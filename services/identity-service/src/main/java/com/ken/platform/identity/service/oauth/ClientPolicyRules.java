@@ -80,6 +80,9 @@ public final class ClientPolicyRules {
         || String.join(",", value.scopes()).length() > 1000) {
       throw invalid("scope 集合不合法或超过协议表上限");
     }
+    if (value.scopes().stream().anyMatch(scope -> scope.startsWith("platform."))
+        && value.principalType() != PrincipalType.PLATFORM)
+      throw invalid("平台管理 scope 只供明确登记的 PLATFORM 客户端");
     if (value.scopes().stream().anyMatch(scope -> scope.startsWith("internal.introspect:"))
         && value.scopes().size() != 1) {
       throw invalid("内省身份只能绑定一个固定资源 audience，不能兼任其他 scope");

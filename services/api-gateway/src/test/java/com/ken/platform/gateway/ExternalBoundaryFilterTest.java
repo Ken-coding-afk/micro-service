@@ -171,6 +171,33 @@ class ExternalBoundaryFilterTest {
   }
 
   @Test
+  void retiredTenantConsoleNeverReachesAuthenticationOrDownstream() throws Exception {
+    for (String path :
+        List.of("", "/csrf", "/login", "/callback", "/api/me", "/api/users", "/logout")) {
+      for (String method : List.of("GET", "POST")) {
+        var response =
+            client.send(
+                HttpRequest.newBuilder(URI.create(origin + "/bff/identity/tenant" + path))
+                    .header("Cookie", "BFF=old-tenant-session")
+                    .method(method, HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as(method + path).isEqualTo(404);
+      }
+    }
+    assertThat(get("/bff/identity/%74enant/api/me").statusCode()).isEqualTo(404);
+    assertThat(forwarded.get()).isZero();
+    for (String path :
+        List.of(
+            "/bff/identity/platform/csrf",
+            "/bff/web/login",
+            "/api/v1/identity/users",
+            "/identity/login?realm=TENANT"))
+      assertThat(get(path).statusCode()).as(path).isEqualTo(200);
+    assertThat(forwarded.get()).isEqualTo(4);
+  }
+
+  @Test
   void simultaneousRequestsKeepTheirOwnReactiveContextOnEventLoop() {
     var futures =
         java.util.stream.IntStream.range(0, 12)

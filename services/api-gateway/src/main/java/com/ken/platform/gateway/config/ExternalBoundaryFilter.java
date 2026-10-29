@@ -53,6 +53,8 @@ public final class ExternalBoundaryFilter implements WebFilter, Ordered {
               || java.util.Arrays.stream(path.split("/"))
                   .anyMatch(segment -> segment.equals(".") || segment.equals("..")))
             throw invalid();
+          if (path.equals("/bff/identity/tenant") || path.startsWith("/bff/identity/tenant/"))
+            return Mono.error(new PlatformException("NOT_FOUND", "管理入口不存在", 404));
           if (path.equals("/internal") || path.startsWith("/internal/"))
             return Mono.error(new PlatformException("FORBIDDEN", "内部接口不允许通过公开入口访问", 403));
           var request =

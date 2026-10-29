@@ -5,16 +5,19 @@ import com.ken.platform.foundation.http.CallContext;
 import com.ken.platform.foundation.http.CallContexts;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.identity.dal.mapper.account.AccountManagementMapper;
+import com.ken.platform.identity.dal.mapper.group.UserGroupRepository;
 import com.ken.platform.identity.dal.mapper.user.UserManagementMapper;
 import com.ken.platform.identity.service.audit.ManagementAudits;
 import com.ken.platform.identity.service.authorization.PlatformManagementAuthorization;
 import com.ken.platform.identity.service.authorization.TenantManagementAuthorization;
+import com.ken.platform.identity.service.group.UserGroupService;
 import com.ken.platform.identity.service.oauth.ClientManagementService;
 import com.ken.platform.identity.service.permission.BuiltinPermissionCatalog;
 import com.ken.platform.identity.service.security.PasswordCredentials;
 import com.ken.platform.identity.service.security.PasswordCredentials.OneTimeSecret;
 import com.ken.platform.identity.service.security.RecentAuthentication;
 import com.ken.platform.identity.service.security.SecurityPolicies;
+import com.ken.platform.identity.service.user.UserProfileService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -43,6 +46,12 @@ public final class AccountCreationService {
   public record CreatedTenant(
       UUID tenantId, UUID adminId, OneTimeSecret credential, boolean replayed) {}
 
+  public record UserCommand(
+      String username,
+      UserProfileService.Fields profile,
+      List<UserGroupService.Reference> groups,
+      List<UserGroupService.Reference> roles) {}
+
   public record CreatedAccount(UUID id, OneTimeSecret credential, boolean replayed) {}
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -61,6 +70,7 @@ public final class AccountCreationService {
   private final Clock clock;
   private final RecentAuthentication recent;
   private final ClientManagementService clients;
+  private final UserGroupRepository groups;
 
   public AccountCreationService(
       PlatformTransactionManager manager,
@@ -74,7 +84,8 @@ public final class AccountCreationService {
       Clock clock,
       ManagementAudits audits,
       RecentAuthentication recent,
-      ClientManagementService clients) {
+      ClientManagementService clients,
+      UserGroupRepository groups) {
     this.audits = audits;
     this.controlTransactions = new TransactionTemplate(manager);
     this.tenantTransactions = tenantTransactions;
@@ -87,6 +98,7 @@ public final class AccountCreationService {
     this.clock = clock;
     this.recent = recent;
     this.clients = clients;
+    this.groups = groups;
   }
 
   public CreatedTenant createTenant(TenantCommand command) {
@@ -199,63 +211,150 @@ public final class AccountCreationService {
         });
   }
 
-  public CreatedAccount createUser(String username, String displayName) {
+  public CreatedAccount createUser(UserCommand command) {
     requireOwnTransaction();
     return audits.attempt(
-        ManagementAudits.Action.TENANT_USER_CREATE,
-        null,
-        () -> createUserInternal(username, displayName));
+        ManagementAudits.Action.TENANT_USER_CREATE, null, () -> createUserInternal(command));
   }
 
-  private CreatedAccount createUserInternal(String username, String displayName) {
-    String normalized = AccountFields.username(username);
-    String display = AccountFields.displayName(displayName);
+  private CreatedAccount createUserInternal(UserCommand command) {
+    String normalized = AccountFields.username(command.username());
+    var profile = command.profile().normalized();
+    String display = profile.displayName();
+    var groupRefs =
+        UserGroupService.references(
+            command.groups() == null ? List.of() : command.groups(), 1000, true);
+    var roleRefs =
+        UserGroupService.references(
+            command.roles() == null ? List.of() : command.roles(), 1000, true);
     UUID actor = tenantAuthorization.actorFor("identity:user:manage");
-    UUID tenant = CallContexts.current().tenantId();
-    String digest = digest(Map.of("username", normalized, "display_name", display));
+    UUID tenant = tenantAuthorization.tenantId();
+    String digest =
+        digest(
+            Map.of(
+                "username",
+                normalized,
+                "profile",
+                JSON.writeValueAsString(profile),
+                "groups",
+                JSON.writeValueAsString(
+                    groupRefs.stream()
+                        .sorted(java.util.Comparator.comparing(UserGroupService.Reference::id))
+                        .toList()),
+                "roles",
+                JSON.writeValueAsString(
+                    roleRefs.stream()
+                        .sorted(java.util.Comparator.comparing(UserGroupService.Reference::id))
+                        .toList())));
     var issued = new AtomicReference<OneTimeSecret>();
     return guarded(
         issued,
         () -> {
           try {
-            return tenantTransactions.execute(
+            return tenantAuthorization.execute(
+                tenantTransactions,
                 () -> {
-                  users.lockCatalog();
-                  var row = users.lockTenant(tenant);
+                  tenantAuthorization.lockCatalog();
+                  var row = tenantAuthorization.lockTenant(tenant);
                   if (row == null
                       || !row.status().equals("ACTIVE")
                       || row.expiresAt() != null && !clock.instant().isBefore(row.expiresAt())) {
                     throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
                   }
-                  users.lockMemberRoles(tenant, List.of(actor));
-                  var locked = users.lockUsers(tenant, List.of(actor));
+                  var acting =
+                      TenantManagementAuthorization.targetTenant() == null
+                          ? users.findUser(tenant, actor)
+                          : null;
                   tenantAuthorization.requireProtectedAdministrator(
-                      tenant, actor, "identity:user:manage", locked);
-                  recent.require(tenant);
-                  var previous = prior("TENANT", actor, tenant, USER_CREATE, digest);
+                      tenant,
+                      actor,
+                      "identity:user:manage",
+                      acting == null ? List.of() : List.of(acting));
+                  recent.require(tenantAuthorization.authenticationTenant());
+                  var previous =
+                      prior(tenantAuthorization.actorType(), actor, tenant, USER_CREATE, digest);
                   if (previous != null) {
                     return new CreatedAccount(
                         UUID.fromString(previous.get("id").asString()), null, true);
+                  }
+                  if (!groupRefs.isEmpty()) tenantAuthorization.actorFor("identity:group:assign");
+                  if (!roleRefs.isEmpty()) tenantAuthorization.actorFor("identity:role:assign");
+                  groups.lock(
+                      tenant, groupRefs.stream().map(UserGroupService.Reference::id).toList());
+                  for (var ref : groupRefs) {
+                    var group = groups.get(tenant, ref.id());
+                    if (group == null) throw new PlatformException("NOT_FOUND", "用户组不存在或不可见", 404);
+                    if (group.version() != ref.version())
+                      throw conflict("GROUP_VERSION_CONFLICT", "用户组已变化，请刷新");
+                    if (!group.effectiveStatus().equals("ACTIVE"))
+                      throw conflict("GROUP_UNAVAILABLE", "用户组或上级已停用");
+                  }
+                  var roleRows =
+                      groups.lockRoles(
+                          tenant, roleRefs.stream().map(UserGroupService.Reference::id).toList());
+                  for (var ref : roleRefs) {
+                    var role =
+                        roleRows.stream()
+                            .filter(r -> r.id().equals(ref.id()))
+                            .findFirst()
+                            .orElseThrow(
+                                () -> new PlatformException("NOT_FOUND", "角色不存在或不可见", 404));
+                    if (role.version() != ref.version())
+                      throw conflict("ROLE_VERSION_CONFLICT", "角色已变化，请刷新");
+                    if (role.protectedRole() || !role.status().equals("ACTIVE"))
+                      throw new PlatformException("ROLE_NOT_ASSIGNABLE", "请选择有效普通业务角色", 403);
                   }
                   var material = passwords.temporary(policies.current(tenant));
                   issued.set(material.secret());
                   UUID id = UUID.randomUUID();
                   accounts.createUser(id, tenant, normalized, display, material.hash());
+                  users.updateProfile(
+                      tenant,
+                      id,
+                      0,
+                      profile.displayName(),
+                      profile.realName(),
+                      profile.employeeNo(),
+                      profile.contactEmail(),
+                      profile.phone(),
+                      profile.avatarUrl(),
+                      profile.description());
+                  for (var ref : groupRefs) {
+                    groups.membership(tenant, ref.id(), id, true);
+                    groups.touch(tenant, ref.id());
+                  }
+                  for (var ref : roleRefs) {
+                    accounts.initialMembership(tenant, id, ref.id());
+                    accounts.touchRole(tenant, ref.id());
+                  }
                   accounts.audit(
                       actor,
-                      "TENANT",
+                      tenantAuthorization.actorType(),
                       tenant,
                       USER_CREATE,
                       id.toString(),
                       CallContexts.current().requestId(),
                       JSON.writeValueAsString(
-                          Map.of("username", normalized, "credential_issued", true)));
+                          Map.of(
+                              "username",
+                              normalized,
+                              "credential_issued",
+                              true,
+                              "groups",
+                              groupRefs.stream().map(UserGroupService.Reference::id).toList(),
+                              "roles",
+                              roleRefs.stream().map(UserGroupService.Reference::id).toList())));
                   remember(
-                      "TENANT", actor, tenant, USER_CREATE, digest, Map.of("id", id.toString()));
+                      tenantAuthorization.actorType(),
+                      actor,
+                      tenant,
+                      USER_CREATE,
+                      digest,
+                      Map.of("id", id.toString()));
                   return new CreatedAccount(id, material.secret(), false);
                 });
           } catch (DuplicateKeyException duplicate) {
-            throw conflict("USERNAME_CONFLICT", "当前租户内账号名称已存在");
+            throw conflict("ACCOUNT_CONFLICT", "当前租户内账号名称或工号已存在");
           }
         });
   }

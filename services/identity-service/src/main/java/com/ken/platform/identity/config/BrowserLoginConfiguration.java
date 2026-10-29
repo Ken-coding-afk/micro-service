@@ -71,6 +71,7 @@ public class BrowserLoginConfiguration {
     http.securityMatcher(
         "/identity/login",
         "/identity/password/initial",
+        "/identity/password/reset",
         "/identity/session",
         "/identity/logout",
         "/identity/consent");
@@ -81,7 +82,11 @@ public class BrowserLoginConfiguration {
     http.authenticationProvider(new LoginAuthentication(service));
     http.authorizeHttpRequests(
         requests ->
-            requests.requestMatchers("/identity/login").permitAll().anyRequest().authenticated());
+            requests
+                .requestMatchers("/identity/login", "/identity/password/reset")
+                .permitAll()
+                .anyRequest()
+                .authenticated());
     http.exceptionHandling(
         errors ->
             errors.authenticationEntryPoint(

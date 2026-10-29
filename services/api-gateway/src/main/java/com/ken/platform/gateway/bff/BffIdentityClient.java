@@ -136,6 +136,20 @@ public final class BffIdentityClient {
   }
 
   public Mono<Identity> application(String token, ClientRegistration client) {
+    return application(token)
+        .map(
+            identity -> {
+              boolean platform = client.getRegistrationId().equals("platform");
+              if (!client.getClientId().equals(identity.client())
+                  || !(platform
+                      ? identity.type().equals("platform") && identity.tenant() == null
+                      : identity.type().equals("user") && identity.tenant() != null))
+                throw invalid();
+              return identity;
+            });
+  }
+
+  public Mono<Identity> application(String token) {
     return web.get()
         .uri("http://identity-service/api/v1/identity/me")
         .headers(headers -> headers.setBearerAuth(token))
@@ -157,8 +171,6 @@ public final class BffIdentityClient {
                               || !data.isObject()
                               || !"APPLICATION_EFFECTIVE".equals(data.path("view").asString()))
                             throw unavailable();
-                          if (!client.getClientId().equals(data.path("client_id").asString()))
-                            throw invalid();
                           String subject = data.path("sub").asString();
                           UUID.fromString(subject);
                           String type = data.path("principal_type").asString();
@@ -166,17 +178,13 @@ public final class BffIdentityClient {
                               data.path("tenant_id").isNull()
                                   ? null
                                   : UUID.fromString(data.path("tenant_id").asString());
-                          boolean platform = client.getRegistrationId().equals("platform");
-                          if (!(platform
-                              ? type.equals("platform") && tenant == null
-                              : type.equals("user") && tenant != null)) throw invalid();
                           var audiences = data.get("audiences");
                           if (audiences == null || !audiences.isObject()) throw unavailable();
                           return new Identity(
                               subject,
                               type,
                               tenant,
-                              client.getClientId(),
+                              data.path("client_id").asString(),
                               Set.copyOf(audiences.propertyNames()),
                               monitoringAllowed(data));
                         } catch (PlatformException known) {

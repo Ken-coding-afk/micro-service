@@ -1,20 +1,19 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave, RouterLink } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, RouterLink } from 'vue-router'
 import { accountContext } from '../../app/context'
-import { can } from '../../app/permissions'
-import { IdentityError, read, write } from '../../api/identity'
+import { canManage, managementPath, useManagementApi } from '../../app/management'
+import { IdentityError } from '../../api/identity'
 import type { Role, RolePage, RolePermissions } from '../../api/tenant'
 import { managementRestriction } from '../../api/tenant'
 import RoleMembersDialog from '../../components/RoleMembersDialog.vue'
 
+const { read, write } = useManagementApi()
 const context = inject(accountContext)
 const owner = computed(() => context?.() ?? null)
-const readable = computed(
-  () => owner.value?.realm === 'tenant' && can(owner.value.me, 'identity:role:read'),
-)
+const readable = computed(() => !!owner.value && canManage(owner.value, 'identity:role:read'))
 const manageable = computed(
-  () => readable.value && owner.value && can(owner.value.me, 'identity:role:manage'),
+  () => readable.value && owner.value && canManage(owner.value, 'identity:role:manage'),
 )
 const rows = ref<Role[]>([])
 const members = ref<Role | null>(null)
@@ -240,7 +239,11 @@ async function submit() {
     if (epoch === generation) pending.value = false
   }
 }
-onBeforeRouteLeave(() => !pending.value)
+const beforeNavigation = () =>
+  !pending.value &&
+  (!dialog.value?.open || window.confirm('离开将放弃未保存的角色修改，是否继续？'))
+onBeforeRouteLeave(beforeNavigation)
+onBeforeRouteUpdate(beforeNavigation)
 onBeforeUnmount(() => {
   generation++
   reset()
@@ -266,7 +269,8 @@ onMounted(() => load(0))
       <div class="section-heading">
         <div>
           <h2>角色列表</h2>
-          <p class="muted">角色归属当前组织，创建和维护角色资料由受保护租户管理员执行。</p>
+          <RouterLink class="text-button" to="/platform/permissions">查看权限目录</RouterLink>
+          <p class="muted">为当前租户组合业务权限，再分配给用户。</p>
         </div>
         <button
           v-if="manageable && canCreate"
@@ -323,7 +327,7 @@ onMounted(() => load(0))
               </td>
               <td class="row-actions">
                 <button
-                  v-if="owner && can(owner.me, 'identity:user:read')"
+                  v-if="owner && canManage(owner, 'identity:user:read')"
                   class="text-button"
                   :disabled="pending"
                   @click="members = row"
@@ -343,10 +347,10 @@ onMounted(() => load(0))
                     删除角色
                   </button></template
                 ><RouterLink
-                  v-if="can(owner!.me, 'identity:permission:read')"
-                  :to="{ path: '/permissions', query: { role: row.id } }"
+                  v-if="canManage(owner!, 'identity:permission:read')"
+                  :to="{ path: managementPath(owner, `/roles/${row.id}`) }"
                   class="text-button"
-                  >查看授权</RouterLink
+                  >角色详情</RouterLink
                 >
               </td>
             </tr>

@@ -17,9 +17,20 @@ import org.springframework.web.bind.annotation.*;
 
 /** 仅适配显式字段；tenant/actor 来自本地实时认证，所有写入重查和审计由既有业务入口负责。 */
 @RestController
-@RequestMapping("/api/v1/identity")
+@RequestMapping({
+  "/api/v1/identity",
+  "/api/v1/identity/platform/tenants/{managementTenant}/identity"
+})
 public final class TenantManagementController {
-  public record ProfileCommand(Long version, @JsonProperty("display_name") String displayName) {
+  public record ProfileCommand(
+      Long version,
+      @JsonProperty("display_name") String displayName,
+      @JsonProperty("real_name") String realName,
+      @JsonProperty("employee_no") String employeeNo,
+      @JsonProperty("contact_email") String contactEmail,
+      String phone,
+      @JsonProperty("avatar_url") String avatarUrl,
+      String description) {
     @JsonAnySetter
     public void rejectUnknownField(String ignored, Object value) {
       throw new IllegalArgumentException("不支持的资料字段");
@@ -91,7 +102,17 @@ public final class TenantManagementController {
   ResponseEntity<Map<String, Object>> profile(
       @PathVariable UUID id, @RequestBody ProfileCommand command) {
     return IdentityApiResponses.ok(
-        profiles.update(id, version(command.version()), command.displayName()));
+        profiles.update(
+            id,
+            version(command.version()),
+            new UserProfileService.Fields(
+                command.displayName(),
+                command.realName(),
+                command.employeeNo(),
+                command.contactEmail(),
+                command.phone(),
+                command.avatarUrl(),
+                command.description())));
   }
 
   @PutMapping("/users/{id}/roles")

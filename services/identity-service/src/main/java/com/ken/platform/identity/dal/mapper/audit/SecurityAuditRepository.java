@@ -13,6 +13,17 @@ public class SecurityAuditRepository {
     this.jdbc = jdbc;
   }
 
+  public UUID existingTenant(UUID requested) {
+    return jdbc
+        .query(
+            "SELECT id FROM sys_tenant WHERE id=?",
+            (row, index) -> row.getObject("id", UUID.class),
+            requested)
+        .stream()
+        .findFirst()
+        .orElse(null);
+  }
+
   public void failure(
       UUID actor,
       String actorType,

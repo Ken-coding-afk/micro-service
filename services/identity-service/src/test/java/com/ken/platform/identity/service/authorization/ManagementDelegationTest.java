@@ -138,7 +138,7 @@ class ManagementDelegationTest {
           for (String operation : OPERATIONS) {
             String[] parts = operation.split(":");
             jdbc.update(
-                "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'身份管理','identity-service','TENANT','identity','身份',?,'管理资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
+                "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'身份管理','identity-service','TENANT','identity','身份',?,'管理资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
                 operation,
                 parts[1],
                 parts[2],
@@ -162,7 +162,7 @@ class ManagementDelegationTest {
           member(operator, operatorRole);
           for (String code : List.of(read, submit))
             jdbc.update(
-                "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'委派业务','document-service','TENANT',?,'测试',?,'测试资源',?,?::text[],?)",
+                "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'委派业务','document-service','TENANT',?,'测试',?,'测试资源',?,?::text[],?)",
                 code,
                 "d-" + tenant,
                 "r-" + code,
@@ -315,7 +315,12 @@ class ManagementDelegationTest {
     legacyGrant(true, true);
     long before = userVersion(target);
     denied(() -> statuses.changeStatus(target, UserStatusService.Status.DISABLED, before));
-    denied(() -> profiles.update(target, before, "不能修改"));
+    denied(
+        () ->
+            profiles.update(
+                target,
+                before,
+                new UserProfileService.Fields("不能修改", null, null, null, null, null, null)));
     assertThat(userVersion(target)).isEqualTo(before);
   }
 

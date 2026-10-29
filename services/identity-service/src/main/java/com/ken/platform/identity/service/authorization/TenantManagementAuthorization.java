@@ -14,11 +14,135 @@ import org.springframework.stereotype.Service;
 public final class TenantManagementAuthorization {
   private final UserManagementMapper mapper;
 
+  private final PlatformManagementAuthorization platform;
+  private final com.ken.platform.identity.dal.support.IdentityTenantScope scope;
+  private final org.springframework.transaction.support.TransactionTemplate control;
+  private static final String TARGET = TenantManagementAuthorization.class.getName() + ".target";
+
+  private record Target(UUID tenant, UUID actor) {}
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public TenantManagementAuthorization(
+      UserManagementMapper mapper,
+      PlatformManagementAuthorization platform,
+      com.ken.platform.identity.dal.support.IdentityTenantScope scope,
+      org.springframework.transaction.PlatformTransactionManager manager) {
+    this.mapper = mapper;
+    this.platform = platform;
+    this.scope = scope;
+    this.control = new org.springframework.transaction.support.TransactionTemplate(manager);
+    this.control.setTimeout(10);
+  }
+
   public TenantManagementAuthorization(UserManagementMapper mapper) {
+    this.platform = null;
+    this.scope = null;
+    this.control = null;
     this.mapper = mapper;
   }
 
+  /** MVC 仅对显式平台管理映射调用；目标留在当前请求，不改写认证主体。 */
+  public void selectTarget(jakarta.servlet.http.HttpServletRequest request, UUID tenant) {
+    UUID actor = platform.actorFor("platform:identity:read");
+    request.setAttribute(TARGET, new Target(tenant, actor));
+  }
+
+  private static Target target() {
+    var attributes =
+        org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+    return attributes
+                instanceof org.springframework.web.context.request.ServletRequestAttributes servlet
+            && servlet.getRequest().getAttribute(TARGET) instanceof Target selected
+        ? selected
+        : null;
+  }
+
+  public static UUID targetTenant() {
+    var selected = target();
+    return selected == null ? null : selected.tenant();
+  }
+
+  public UUID tenantId() {
+    var selected = target();
+    return selected == null ? CallContexts.current().tenantId() : selected.tenant();
+  }
+
+  public String actorType() {
+    return target() == null ? "TENANT" : "PLATFORM";
+  }
+
+  public UUID authenticationTenant() {
+    return target() == null ? tenantId() : null;
+  }
+
+  public <T> T execute(
+      com.ken.platform.foundation.data.TenantTransactions transactions,
+      java.util.function.Supplier<T> operation) {
+    var selected = target();
+    if (selected == null) return transactions.execute(operation);
+    return control.execute(status -> scope.within(selected.tenant(), operation));
+  }
+
+  public long lockCatalog() {
+    long version = mapper.lockCatalog();
+    var selected = target();
+    if (selected != null) platform.requireActive(selected.actor());
+    return version;
+  }
+
+  public UserManagementMapper.TenantRow lockTenant(UUID tenant) {
+    var row = mapper.lockTenant(tenant);
+    if (row == null && target() != null) throw new PlatformException("NOT_FOUND", "租户不存在", 404);
+    return row;
+  }
+
+  public List<UUID> userIds(UUID actor, UUID subject) {
+    if (target() != null) return subject == null ? List.of() : List.of(subject);
+    return subject == null || actor.equals(subject) ? List.of(actor) : List.of(actor, subject);
+  }
+
+  public List<UserManagementMapper.UserRow> lockUsers(UUID tenant, List<UUID> ids) {
+    return ids.isEmpty() ? List.of() : mapper.lockUsers(tenant, ids);
+  }
+
+  public void lockMemberRoles(UUID tenant, List<UUID> ids) {
+    if (!ids.isEmpty()) mapper.lockMemberRoles(tenant, ids);
+  }
+
+  public List<UUID> actorRoles(
+      UUID tenant,
+      UUID actor,
+      com.ken.platform.identity.dal.mapper.role.RolePermissionMapper roles) {
+    return target() == null ? roles.memberRoles(tenant, actor) : List.of();
+  }
+
   public UUID actorFor(String operation) {
+    var selected = target();
+    if (selected != null) {
+      String permission =
+          switch (operation) {
+            case "identity:group:read",
+                "identity:user:read",
+                "identity:role:read",
+                "identity:permission:read",
+                "identity:session:read",
+                "identity:audit:read" ->
+                "platform:identity:read";
+            case "identity:group:manage",
+                "identity:group:assign",
+                "identity:user:manage",
+                "identity:role:manage",
+                "identity:role:assign",
+                "identity:session:manage" ->
+                "platform:identity:manage";
+            default -> throw new PlatformException("FORBIDDEN", "未开放的平台租户管理操作", 403);
+          };
+      UUID actor = platform.actorFor(permission);
+      if (!actor.equals(selected.actor()))
+        throw new PlatformException("INVALID_CREDENTIALS", "管理身份已变化", 401);
+      if (operation.equals("identity:audit:read")) platform.actorFor("platform:audit:read");
+      return actor;
+    }
     var authentication = SecurityContextHolder.getContext().getAuthentication();
     var context = CallContexts.current();
     if (authentication == null
@@ -51,6 +175,12 @@ public final class TenantManagementAuthorization {
 
   public boolean isProtectedAdministrator(
       UUID tenant, UUID actor, String operation, List<UserManagementMapper.UserRow> lockedUsers) {
+    var selected = target();
+    if (selected != null) {
+      return selected.tenant().equals(tenant)
+          && selected.actor().equals(actor)
+          && actor.equals(actorFor(operation));
+    }
     var acting =
         lockedUsers.stream()
             .filter(user -> user.id().equals(actor))

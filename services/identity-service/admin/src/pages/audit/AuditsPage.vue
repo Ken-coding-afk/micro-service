@@ -2,7 +2,9 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { accountContext } from '../../app/context'
 import { can } from '../../app/permissions'
-import { IdentityError, read } from '../../api/identity'
+import { canManage, useManagementApi } from '../../app/management'
+import TenantPicker from '../../components/TenantPicker.vue'
+import { IdentityError, read as apiRead } from '../../api/identity'
 
 interface Entry {
   id: string
@@ -23,22 +25,25 @@ interface Page {
   has_more: boolean
   items: Entry[]
 }
+const { read } = useManagementApi()
 const context = inject(accountContext)
 const owner = computed(() => context?.() ?? null)
 const platform = computed(
-  () => owner.value?.realm === 'platform' && owner.value.me.principal_type === 'platform',
+  () =>
+    owner.value?.realm === 'platform' &&
+    !owner.value.targetTenant &&
+    owner.value.me.principal_type === 'platform',
 )
 const allowed = computed(
   () =>
     !!owner.value &&
     (platform.value
       ? can(owner.value.me, 'platform:audit:read')
-      : owner.value.realm === 'tenant' &&
-        owner.value.me.principal_type === 'user' &&
-        can(owner.value.me, 'identity:audit:read')),
+      : !!owner.value && canManage(owner.value, 'identity:audit:read')),
 )
 const identity = computed(
-  () => `${owner.value?.realm}/${owner.value?.me.tenant_id}/${owner.value?.me.sub}`,
+  () =>
+    `${owner.value?.realm}/${owner.value?.targetTenant ?? owner.value?.me.tenant_id}/${owner.value?.me.sub}`,
 )
 const rows = ref<Entry[]>([]),
   page = ref(0),
@@ -51,7 +56,8 @@ const from = ref(''),
   action = ref(''),
   target = ref(''),
   result = ref('')
-const filter = ref('')
+const filter = ref(''),
+  selectedTenants = ref<string[]>([])
 const selected = ref<Entry | null>(null),
   dialog = ref<HTMLDialogElement | null>(null)
 let generation = 0,
@@ -78,10 +84,16 @@ async function load(targetPage = 0, query = filter.value) {
   error.value = ''
   close()
   try {
-    const value = await read<Page>(
-      platform.value ? 'platform' : 'tenant',
-      `${platform.value ? '/platform' : ''}/audits?page=${targetPage}&size=20${query}`,
-    )
+    const value =
+      platform.value && selectedTenants.value[0]
+        ? await apiRead<Page>(
+            'platform',
+            `/platform/tenants/${selectedTenants.value[0]}/identity/audits?page=${targetPage}&size=20${query}`,
+          )
+        : await read<Page>(
+            platform.value ? 'platform' : 'tenant',
+            `${platform.value ? '/platform' : ''}/audits?page=${targetPage}&size=20${query}`,
+          )
     if (epoch !== generation || request !== sequence) return
     rows.value = value.items
     page.value = value.page
@@ -156,6 +168,10 @@ onBeforeUnmount(() => {
   close()
 })
 onMounted(() => load(0, ''))
+function platformAudit() {
+  selectedTenants.value = []
+  void load(0, '')
+}
 </script>
 
 <template>
@@ -167,11 +183,30 @@ onMounted(() => load(0, ''))
           <h2>审计记录</h2>
           <p class="muted">
             {{
-              platform ? '仅显示平台控制操作。' : '仅显示当前组织内的身份管理与认证记录。'
+              platform && !selectedTenants.length
+                ? '显示平台控制操作，可选择租户查询对应认证记录。'
+                : '仅显示当前组织内的身份管理与认证记录。'
             }}记录只读，详情由服务端脱敏。
           </p>
         </div>
         <span class="realm-badge">{{ platform ? '平台范围' : '当前组织' }}</span>
+      </div>
+      <div v-if="platform && can(owner!.me, 'platform:identity:read')" class="audit-scope">
+        <label>按租户查看认证与管理记录</label
+        ><TenantPicker
+          v-model="selectedTenants"
+          single
+          :disabled="loading"
+          @update:model-value="load(0, '')"
+        />
+        <button
+          v-if="selectedTenants.length"
+          class="text-button"
+          :disabled="loading"
+          @click="platformAudit"
+        >
+          返回平台操作
+        </button>
       </div>
       <form class="audit-filters" @submit.prevent="search">
         <label class="field"

@@ -103,7 +103,7 @@ class UserStatusServiceTest {
     data(
         () -> {
           jdbc.update(
-              "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('identity:user:manage','管理用户','identity-service','TENANT','identity','身份','user','用户','manage',ARRAY['TENANT'],'identity.users') ON CONFLICT DO NOTHING");
+              "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','identity:user:manage','管理用户','identity-service','TENANT','identity','身份','user','用户','manage',ARRAY['TENANT'],'identity.users') ON CONFLICT DO NOTHING");
           jdbc.update(
               "INSERT INTO sys_role(id,tenant_id,code,name,protected) VALUES (?,?,'tenant-admin','租户管理员',true)",
               role,

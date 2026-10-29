@@ -104,6 +104,8 @@ public final class BffClientSettings {
                 "profile",
                 "platform.admins",
                 "platform.tenants",
+                "platform.identity",
+                "platform.permissions",
                 "platform.clients",
                 "platform.security",
                 "platform.audit"));

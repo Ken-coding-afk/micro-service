@@ -28,10 +28,12 @@ public class IdentityResourceConfiguration {
       UserTokenService users,
       Clock clock,
       RuntimeParameters parameters,
-      ManagementAudits audits)
+      ManagementAudits audits,
+      org.springframework.core.env.Environment environment)
       throws Exception {
     var errors = new IdentityResourceErrors(audits);
-    http.securityMatcher("/api/v1/identity/**");
+    http.securityMatcher(
+        "/api/v1/identity/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html");
     http.csrf(AbstractHttpConfigurer::disable)
         .formLogin(AbstractHttpConfigurer::disable)
         .httpBasic(AbstractHttpConfigurer::disable)
@@ -44,6 +46,12 @@ public class IdentityResourceConfiguration {
     http.authorizeHttpRequests(
         requests ->
             requests
+                .requestMatchers(
+                    HttpMethod.GET, "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                .access(
+                    (authentication, context) ->
+                        new org.springframework.security.authorization.AuthorizationDecision(
+                            "local".equals(environment.getProperty("APP_ENV"))))
                 .requestMatchers(HttpMethod.GET, "/api/v1/identity/admin-config")
                 .permitAll()
                 .requestMatchers(
@@ -133,6 +141,89 @@ public class IdentityResourceConfiguration {
                     HttpMethod.POST, "/api/v1/identity/roles", "/api/v1/identity/roles/*:copy")
                 .authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/identity/roles/*")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/v1/identity/platform/tenants/*/identity/users",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/roles",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/effective-permissions",
+                    "/api/v1/identity/platform/tenants/*/identity/roles",
+                    "/api/v1/identity/platform/tenants/*/identity/roles/*/members",
+                    "/api/v1/identity/platform/tenants/*/identity/permissions",
+                    "/api/v1/identity/platform/tenants/*/identity/role-permissions/*",
+                    "/api/v1/identity/platform/tenants/*/identity/sessions",
+                    "/api/v1/identity/platform/tenants/*/identity/audits")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.POST,
+                    "/api/v1/identity/platform/tenants/*/identity/users",
+                    "/api/v1/identity/platform/tenants/*/identity/roles",
+                    "/api/v1/identity/platform/tenants/*/identity/roles/*:copy",
+                    "/api/v1/identity/platform/tenants/*/identity/sessions/*:revoke",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*:sign-out-all")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.PUT,
+                    "/api/v1/identity/platform/tenants/*/identity/users/*",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/profile",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/roles",
+                    "/api/v1/identity/platform/tenants/*/identity/role-permissions/*",
+                    "/api/v1/identity/platform/tenants/*/identity/roles/*")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.DELETE, "/api/v1/identity/platform/tenants/*/identity/roles/*")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.POST,
+                    "/api/v1/identity/users/*/password-reset",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/password-reset")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/v1/identity/groups",
+                    "/api/v1/identity/groups/*",
+                    "/api/v1/identity/groups/*/members",
+                    "/api/v1/identity/groups/*/roles",
+                    "/api/v1/identity/users/*/groups",
+                    "/api/v1/identity/roles/*/groups",
+                    "/api/v1/identity/platform/tenants/*/identity/groups",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*/members",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*/roles",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/groups",
+                    "/api/v1/identity/platform/tenants/*/identity/roles/*/groups",
+                    "/api/v1/identity/platform/permissions",
+                    "/api/v1/identity/platform/permissions/*",
+                    "/api/v1/identity/platform/permissions/*/roles",
+                    "/api/v1/identity/platform/service-audiences")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.POST,
+                    "/api/v1/identity/groups",
+                    "/api/v1/identity/groups/*:move",
+                    "/api/v1/identity/groups/*/members:add",
+                    "/api/v1/identity/groups/*/members:remove",
+                    "/api/v1/identity/platform/tenants/*/identity/groups",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*:move",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*/members:add",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*/members:remove",
+                    "/api/v1/identity/platform/permissions")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.PUT,
+                    "/api/v1/identity/groups/*",
+                    "/api/v1/identity/groups/*/roles",
+                    "/api/v1/identity/users/*/groups",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*/roles",
+                    "/api/v1/identity/platform/tenants/*/identity/users/*/groups",
+                    "/api/v1/identity/platform/permissions/*")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.DELETE,
+                    "/api/v1/identity/groups/*",
+                    "/api/v1/identity/platform/tenants/*/identity/groups/*")
                 .authenticated()
                 .anyRequest()
                 .denyAll());

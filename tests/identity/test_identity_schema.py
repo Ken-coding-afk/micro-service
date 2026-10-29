@@ -100,7 +100,7 @@ def test_identity_schema_rls_foreign_keys_and_runtime_grants(
             (role_a, tenant_a),
         )
         admin.execute(
-            "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('document:read','阅读','document-service','TENANT','document','文档','document','文档','read',ARRAY['SELF','TENANT'],'document.read')"
+            "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','document:read','阅读','document-service','TENANT','document','文档','document','文档','read',ARRAY['SELF','TENANT'],'document.read')"
         )
         admin.execute(
             "INSERT INTO sys_role_permission(tenant_id,role_id,permission_code,data_scope) VALUES (%s,%s,'document:read','SELF')",

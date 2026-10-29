@@ -330,12 +330,12 @@ public final class ClientManagementService {
     var registered = store.bootstrapClient(purpose);
     var existing = store.byClientId(value.clientId());
     if (registered != null) {
-      if (upgradeMonitoring
-          && purpose.equals("PLATFORM_BFF")
+      if (purpose.equals("PLATFORM_BFF")
           && existing != null
           && registered.id().equals(existing.client().getId())
           && registered.digest().equals(bootstrapDigest(purpose, view(existing).definition()))
           && credentials.matches(secret, existing.client().getClientSecret())
+          && upgradeMonitoring
           && monitoringScopeUpgrade(view(existing).definition(), value)) {
         long version = existing.policy().version();
         store.savePair(
@@ -350,11 +350,15 @@ public final class ClientManagementService {
             null,
             "SERVICE",
             null,
-            "identity.bootstrap.monitoring.enabled",
+            "identity.bootstrap.scopes.upgraded",
             registered.id(),
             UUID.randomUUID().toString(),
             JSON.writeValueAsString(
-                Map.of("client_id", value.clientId(), "added_scope", "platform.monitoring")));
+                Map.of(
+                    "client_id",
+                    value.clientId(),
+                    "scopes",
+                    value.scopes().stream().sorted().toList())));
         return new View(UUID.fromString(registered.id()), value, version + 1);
       }
       if (existing == null

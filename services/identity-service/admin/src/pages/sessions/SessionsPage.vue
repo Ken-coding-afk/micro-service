@@ -2,8 +2,8 @@
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { accountContext } from '../../app/context'
-import { can } from '../../app/permissions'
-import { IdentityError, read, write } from '../../api/identity'
+import { canManage, useManagementApi } from '../../app/management'
+import { IdentityError } from '../../api/identity'
 
 interface Session {
   id: string
@@ -23,20 +23,17 @@ interface Page {
   has_more: boolean
   items: Session[]
 }
+const { read, write } = useManagementApi()
 const route = useRoute(),
   context = inject(accountContext)
 const owner = computed(() => context?.() ?? null)
-const readable = computed(
-  () =>
-    owner.value?.realm === 'tenant' &&
-    owner.value.me.principal_type === 'user' &&
-    can(owner.value.me, 'identity:session:read'),
-)
+const readable = computed(() => !!owner.value && canManage(owner.value, 'identity:session:read'))
 const manageable = computed(
-  () => readable.value && owner.value && can(owner.value.me, 'identity:session:manage'),
+  () => readable.value && owner.value && canManage(owner.value, 'identity:session:manage'),
 )
 const identity = computed(
-  () => `${owner.value?.realm}/${owner.value?.me.tenant_id}/${owner.value?.me.sub}`,
+  () =>
+    `${owner.value?.realm}/${owner.value?.targetTenant ?? owner.value?.me.tenant_id}/${owner.value?.me.sub}`,
 )
 const rows = ref<Session[]>([]),
   page = ref(0),

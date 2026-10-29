@@ -8,7 +8,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/identity")
+@RequestMapping({
+  "/api/v1/identity",
+  "/api/v1/identity/platform/tenants/{managementTenant}/identity"
+})
 public final class TenantManagementQueryController {
   private final TenantManagementQueryService queries;
 
@@ -20,8 +23,11 @@ public final class TenantManagementQueryController {
   ResponseEntity<Map<String, Object>> users(
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
-      @RequestParam(defaultValue = "") String q) {
-    return IdentityApiResponses.ok(queries.users(page, size, q));
+      @RequestParam(defaultValue = "") String q,
+      @RequestParam(defaultValue = "") String status,
+      @RequestParam(name = "group_id", required = false) UUID group,
+      @RequestParam(name = "include_descendants", defaultValue = "false") boolean descendants) {
+    return IdentityApiResponses.ok(queries.users(page, size, q, status, group, descendants));
   }
 
   @GetMapping("/users/{id}")

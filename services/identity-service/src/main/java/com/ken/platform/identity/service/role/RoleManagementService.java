@@ -82,10 +82,11 @@ public final class RoleManagementService {
     String cleanDescription = description == null ? "" : validateDescription(description);
     UUID actor = authorization.actorFor(OPERATION);
     try {
-      return transactions.execute(
+      return authorization.execute(
+          transactions,
           () -> {
             lock(actor, null);
-            UUID tenant = CallContexts.current().tenantId();
+            UUID tenant = authorization.tenantId();
             UUID id = UUID.randomUUID();
             roles.create(id, tenant, code, cleanName, "ACTIVE", cleanDescription);
             audit(
@@ -128,7 +129,8 @@ public final class RoleManagementService {
       throw invalid("角色属性参数不合法");
     }
     UUID actor = authorization.actorFor(OPERATION);
-    return transactions.execute(
+    return authorization.execute(
+        transactions,
         () -> {
           var locked = lock(actor, id);
           var role = locked.role();
@@ -144,7 +146,7 @@ public final class RoleManagementService {
             return view(role);
           }
           if (roles.update(
-                  CallContexts.current().tenantId(),
+                  authorization.tenantId(),
                   id,
                   expectedVersion,
                   cleanName,
@@ -214,7 +216,8 @@ public final class RoleManagementService {
     String requestedDescription = description == null ? null : validateDescription(description);
     UUID actor = authorization.actorFor(OPERATION);
     try {
-      return transactions.execute(
+      return authorization.execute(
+          transactions,
           () -> {
             var locked = lock(actor, source);
             var role = locked.role();
@@ -225,7 +228,7 @@ public final class RoleManagementService {
                 || locked.catalogVersion() != expectedCatalogVersion) {
               throw conflict("ROLE_OR_CATALOG_VERSION_CONFLICT", "角色或目录已变化，请刷新后复制");
             }
-            UUID tenant = CallContexts.current().tenantId();
+            UUID tenant = authorization.tenantId();
             var grants = permissions.grants(tenant, source);
             var catalog =
                 permissions.catalog().stream()
@@ -295,13 +298,14 @@ public final class RoleManagementService {
         id,
         () -> {
           UUID actor = authorization.actorFor(OPERATION);
-          return transactions.execute(
+          return authorization.execute(
+              transactions,
               () -> {
                 var role = lock(actor, id).role();
                 mutable(role);
                 if (role.version() != expectedVersion)
                   throw conflict("ROLE_VERSION_CONFLICT", "角色已变化，请核对后删除");
-                UUID tenant = CallContexts.current().tenantId();
+                UUID tenant = authorization.tenantId();
                 if (roles.hasMembers(tenant, id)) throw conflict("ROLE_NOT_EMPTY", "请先移除此角色的全部成员");
                 if (roles.hasDelegationReferences(tenant, id))
                   throw conflict("ROLE_REFERENCED", "角色仍有管理委派引用，不能删除或抹去委派历史");
@@ -339,22 +343,22 @@ public final class RoleManagementService {
 
   private Locked lock(UUID actor, UUID target) {
     var context = CallContexts.current();
-    UUID tenant = context.tenantId();
-    long catalog = users.lockCatalog();
-    var current = users.lockTenant(tenant);
+    UUID tenant = authorization.tenantId();
+    long catalog = authorization.lockCatalog();
+    var current = authorization.lockTenant(tenant);
     if (current == null
         || !current.status().equals("ACTIVE")
         || current.expiresAt() != null && !clock.instant().isBefore(current.expiresAt())) {
       throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
     }
-    var ids = new HashSet<>(permissions.memberRoles(tenant, actor));
+    var ids = new HashSet<>(authorization.actorRoles(tenant, actor, permissions));
     if (target != null) {
       ids.add(target);
     }
     if (!ids.isEmpty()) {
       permissions.lockRoles(tenant, List.copyOf(ids));
     }
-    var accounts = users.lockUsers(tenant, List.of(actor));
+    var accounts = authorization.lockUsers(tenant, authorization.userIds(actor, null));
     authorization.requireProtectedAdministrator(tenant, actor, OPERATION, accounts);
     var role = target == null ? null : roles.details(tenant, target);
     if (target != null && role == null) {
@@ -367,7 +371,8 @@ public final class RoleManagementService {
     var context = CallContexts.current();
     roles.audit(
         actor,
-        context.tenantId(),
+        authorization.actorType(),
+        authorization.tenantId(),
         action,
         target.toString(),
         context.requestId(),

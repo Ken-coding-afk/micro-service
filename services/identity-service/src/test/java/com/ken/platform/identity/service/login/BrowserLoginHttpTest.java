@@ -113,6 +113,12 @@ class BrowserLoginHttpTest {
     IdentitySessionConfiguration.class,
     IdentitySigningConfiguration.class,
     BrowserLoginConfiguration.class,
+    com.ken.platform.identity.config.PlatformTenantManagementConfiguration.class,
+    com.ken.platform.identity.dal.support.IdentityTenantScope.class,
+    com.ken.platform.identity.dal.mapper.login.PasswordResetStore.class,
+    com.ken.platform.identity.service.login.PasswordResetService.class,
+    com.ken.platform.identity.controller.login.PasswordResetPageController.class,
+    com.ken.platform.identity.controller.management.PasswordResetManagementController.class,
     com.ken.platform.identity.config.IdentityResourceConfiguration.class,
     com.ken.platform.identity.controller.oauth.CurrentApplicationController.class,
     com.ken.platform.identity.controller.management.TenantManagementController.class,
@@ -133,6 +139,12 @@ class BrowserLoginHttpTest {
     com.ken.platform.identity.service.authorization.PlatformManagementAuthorization.class,
     com.ken.platform.identity.controller.management.AccountManagementController.class,
     com.ken.platform.identity.service.account.AccountCreationService.class,
+    com.ken.platform.identity.dal.mapper.group.UserGroupRepository.class,
+    com.ken.platform.identity.service.group.UserGroupService.class,
+    com.ken.platform.identity.controller.management.UserGroupController.class,
+    com.ken.platform.identity.dal.mapper.permission.PermissionManagementRepository.class,
+    com.ken.platform.identity.service.permission.ManualPermissionService.class,
+    com.ken.platform.identity.controller.management.PermissionManagementController.class,
     com.ken.platform.identity.service.account.PlatformLifecycleService.class,
     com.ken.platform.identity.service.account.PlatformAccountQueryService.class,
     com.ken.platform.identity.controller.management.OwnAccountController.class,
@@ -153,6 +165,12 @@ class BrowserLoginHttpTest {
     SessionCleanup.class
   })
   static class WebConfiguration {
+    @Bean
+    static org.springframework.dao.annotation.PersistenceExceptionTranslationPostProcessor
+        repositoryTranslation() {
+      return new org.springframework.dao.annotation.PersistenceExceptionTranslationPostProcessor();
+    }
+
     @Bean
     Clock clock() {
       return Clock.systemUTC();
@@ -465,6 +483,10 @@ class BrowserLoginHttpTest {
     context.addBeanFactoryPostProcessor(
         beans -> {
           beans.registerSingleton("jdbcTemplate", jdbc);
+          beans.registerSingleton(
+              "permissionCatalogMapper",
+              managementMapper(
+                  com.ken.platform.identity.dal.mapper.permission.PermissionCatalogMapper.class));
           beans.registerSingleton("transactionManager", manager);
           beans.registerSingleton("loginStore", store);
           beans.registerSingleton("loginProtection", redis.protection);
@@ -1098,7 +1120,7 @@ class BrowserLoginHttpTest {
     ordinary();
     login();
     jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES('identity:security:manage','安全策略','identity-service','TENANT','native','测试','native-security-policy','策略','manage',ARRAY['TENANT'],'identity.security') ON CONFLICT DO NOTHING");
+        "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED','identity:security:manage','安全策略','identity-service','TENANT','native','测试','native-security-policy','策略','manage',ARRAY['TENANT'],'identity.security') ON CONFLICT DO NOTHING");
     UUID role = UUID.randomUUID();
     data(
         () -> {
@@ -1348,7 +1370,7 @@ class BrowserLoginHttpTest {
     for (String operation : NATIVE_MANAGEMENT_OPERATIONS) {
       String[] parts = operation.split(":");
       jdbc.update(
-          "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'管理','identity-service','TENANT','identity','身份',?,'管理资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
+          "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'管理','identity-service','TENANT','identity','身份',?,'管理资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
           operation,
           parts[1],
           parts[2],
@@ -1357,7 +1379,7 @@ class BrowserLoginHttpTest {
               : parts[1].equals("role") ? "identity.roles" : "identity.permissions");
     }
     jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'业务读取','document-service','TENANT','native-management','管理测试',?,'业务资源','read',ARRAY['SELF','TENANT'],'management.business.read')",
+        "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'业务读取','document-service','TENANT','native-management','管理测试',?,'业务资源','read',ARRAY['SELF','TENANT'],'management.business.read')",
         read,
         read);
     data(
@@ -2101,7 +2123,8 @@ class BrowserLoginHttpTest {
             manager.token(),
             Map.of("version", 0, "display_name", "新的管理员名称"));
     assertThat(updated.statusCode()).isEqualTo(200);
-    assertThat(json(updated).get("data").get("display_name").asString()).isEqualTo("新的管理员名称");
+    assertThat(managementData(manager, "/users/" + user).get("display_name").asString())
+        .isEqualTo("新的管理员名称");
     assertThat(json(updated).get("data").get("version").asLong()).isEqualTo(1);
     assertThat(updated.headers().allValues("Set-Cookie")).isEmpty();
     assertThat(
@@ -2162,6 +2185,10 @@ class BrowserLoginHttpTest {
   private record PlatformManager(UUID user, OAuthClient client, String token, String refresh) {}
 
   private PlatformManager platformManager() throws Exception {
+    return platformManager(false);
+  }
+
+  private PlatformManager platformManager(boolean tenantManagement) throws Exception {
     UUID id = UUID.randomUUID();
     String name = "client-admin-" + id, password = "Fixture platform " + id;
     jdbc.update(
@@ -2174,25 +2201,25 @@ class BrowserLoginHttpTest {
     loginFields.put("tenant_code", "");
     loginFields.put("username", name);
     assertThat(post("/identity/login", loginFields).statusCode()).isEqualTo(302);
-    for (String resource : java.util.List.of("client", "tenant", "admin"))
+    for (String resource : java.util.List.of("client", "tenant", "admin", "permission"))
       for (String operation : java.util.List.of("read", "manage"))
         jdbc.update(
-            "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES(?,'平台管理','identity-service','PLATFORM','platform','平台',?,'平台资源',?,?) ON CONFLICT DO NOTHING",
+            "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES ('PUBLISHED',?,'平台管理','identity-service','PLATFORM','platform','平台',?,'平台资源',?,?) ON CONFLICT DO NOTHING",
             "platform:" + resource + ":" + operation,
             resource,
             operation,
             "platform." + resource + "s");
     for (String operation : java.util.List.of("read", "manage"))
       jdbc.update(
-          "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES(?,'平台安全','identity-service','PLATFORM','platform','平台','platform-security','安全',?,'platform.security') ON CONFLICT DO NOTHING",
+          "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES ('PUBLISHED',?,'平台安全','identity-service','PLATFORM','platform','平台','platform-security','安全',?,'platform.security') ON CONFLICT DO NOTHING",
           "platform:security:" + operation,
           operation);
     jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES('platform:audit:read','平台审计','identity-service','PLATFORM','platform','平台','platform-audit','审计','read','platform.audit') ON CONFLICT DO NOTHING");
+        "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES ('PUBLISHED','platform:audit:read','平台审计','identity-service','PLATFORM','platform','平台','platform-audit','审计','read','platform.audit') ON CONFLICT DO NOTHING");
     for (String operation : NATIVE_MANAGEMENT_OPERATIONS) {
       String[] parts = operation.split(":");
       jdbc.update(
-          "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'管理','identity-service','TENANT','identity','身份',?,'管理资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
+          "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'管理','identity-service','TENANT','identity','身份',?,'管理资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
           operation,
           parts[1],
           parts[2],
@@ -2200,6 +2227,12 @@ class BrowserLoginHttpTest {
               ? "identity.users"
               : parts[1].equals("role") ? "identity.roles" : "identity.permissions");
     }
+    if (tenantManagement)
+      for (String operation : java.util.List.of("read", "manage"))
+        jdbc.update(
+            "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES ('PUBLISHED',?,'租户身份管理','identity-service','PLATFORM','platform','平台','identity','身份',?,'platform.identity') ON CONFLICT DO NOTHING",
+            "platform:identity:" + operation,
+            operation);
     var original = oauthClient(false, false, true);
     clientBoundary(
         original,
@@ -2209,7 +2242,9 @@ class BrowserLoginHttpTest {
             "platform.tenants",
             "platform.admins",
             "platform.security",
-            "platform.audit"),
+            "platform.audit",
+            "platform.permissions",
+            tenantManagement ? "platform.identity" : "openid"),
         java.util.Set.of("identity-service"));
     var client =
         new OAuthClient(
@@ -2218,10 +2253,284 @@ class BrowserLoginHttpTest {
             original.secret(),
             false,
             true,
-            "profile platform.clients platform.tenants platform.admins platform.security platform.audit");
+            "profile platform.clients platform.tenants platform.admins platform.security platform.audit platform.permissions"
+                + (tenantManagement ? " platform.identity" : ""));
     var issued = json(oauthToken(client, codeGrant(authorizationCode(client), VERIFIER)));
     return new PlatformManager(
         id, client, issued.get("access_token").asString(), issued.get("refresh_token").asString());
+  }
+
+  @Test
+  void platformTenantManagementAndPasswordResetUseRealHttpBoundaries() throws Exception {
+    ordinary();
+    login();
+    var granted = liveGrant();
+    var previous =
+        json(
+            oauthToken(granted.client(), codeGrant(authorizationCode(granted.client()), VERIFIER)));
+    var oldToken = previous.get("access_token").asString();
+    var inspector = reader(granted.audience());
+    assertThat(
+            json(oauthExchange("/oauth2/introspect", inspector, Map.of("token", oldToken)))
+                .get("active")
+                .asBoolean())
+        .isTrue();
+    var manager = platformManager(true);
+    try {
+      String prefix = "/platform/tenants/" + tenant + "/identity";
+      var me = json(management("GET", "/me", manager.token(), Map.of())).get("data");
+      assertThat(me.get("principal_type").asString()).isEqualTo("platform");
+      assertThat(me.get("tenant_id").isNull()).isTrue();
+      var listing = management("GET", prefix + "/users", manager.token(), Map.of());
+      assertThat(listing.statusCode()).withFailMessage(listing.body()).isEqualTo(200);
+      assertThat(management("GET", "/users", manager.token(), Map.of()).statusCode())
+          .isEqualTo(401);
+      assertThat(management("GET", prefix + "/me", manager.token(), Map.of()).statusCode())
+          .isEqualTo(403);
+      assertThat(
+              management("GET", prefix + "/users/" + UUID.randomUUID(), manager.token(), Map.of())
+                  .statusCode())
+          .isEqualTo(404);
+      var current =
+          json(management("GET", prefix + "/users/" + user, manager.token(), Map.of())).get("data");
+      var issued =
+          management(
+              "POST",
+              prefix + "/users/" + user + "/password-reset",
+              manager.token(),
+              Map.of("version", current.get("version").asLong()),
+              UUID.randomUUID().toString());
+      assertThat(issued.statusCode()).withFailMessage(issued.body()).isEqualTo(200);
+      String ticket = json(issued).get("data").get("reset_token").asString();
+      String fresh = "Reset by HTTP " + UUID.randomUUID();
+      assertThat(
+              post(
+                      "/identity/password/reset",
+                      Map.of("token", ticket, "password", fresh, "confirmation", fresh))
+                  .statusCode())
+          .isEqualTo(403);
+      var reset =
+          post(
+              "/identity/password/reset",
+              Map.of(
+                  "_csrf",
+                  csrf("/identity/password/reset"),
+                  "token",
+                  ticket,
+                  "password",
+                  fresh,
+                  "confirmation",
+                  fresh));
+      assertThat(reset.statusCode()).withFailMessage(reset.body()).isEqualTo(200);
+      assertThat(reset.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+      assertThat(reset.body()).contains("密码已更新").doesNotContain(ticket).doesNotContain(fresh);
+      assertThat(
+              json(oauthExchange("/oauth2/introspect", inspector, Map.of("token", oldToken)))
+                  .get("active")
+                  .asBoolean())
+          .isFalse();
+      var refresh =
+          oauthToken(
+              granted.client(),
+              Map.of(
+                  "grant_type",
+                  "refresh_token",
+                  "refresh_token",
+                  previous.get("refresh_token").asString()));
+      assertThat(refresh.statusCode()).isEqualTo(400);
+      assertThat(json(refresh).get("error").asString()).isEqualTo("invalid_grant");
+      assertThat(
+              post(
+                      "/identity/password/reset",
+                      Map.of(
+                          "_csrf",
+                          csrf("/identity/password/reset"),
+                          "token",
+                          ticket,
+                          "password",
+                          fresh,
+                          "confirmation",
+                          fresh))
+                  .statusCode())
+          .isEqualTo(400);
+      assertThat(
+              data(
+                  () ->
+                      passwords.matches(
+                          fresh,
+                          new com.ken.platform.identity.dal.mapper.login.PasswordResetStore(jdbc)
+                              .password(tenant, user))))
+          .isTrue();
+      assertThat(management("GET", prefix + "/audits", manager.token(), Map.of()).statusCode())
+          .isEqualTo(200);
+      var auditEntries =
+          json(management(
+                  "GET",
+                  prefix + "/audits?action=identity.password-reset.issued&target_id=" + user,
+                  manager.token(),
+                  Map.of()))
+              .get("data")
+              .get("items");
+      assertThat(auditEntries.size()).isEqualTo(1);
+      assertThat(auditEntries.get(0).get("actor_type").asString()).isEqualTo("PLATFORM");
+      assertThat(auditEntries.get(0).get("actor_id").asString())
+          .isEqualTo(manager.user().toString());
+      assertThat(auditEntries.get(0).get("tenant_id").asString()).isEqualTo(tenant.toString());
+      assertThat(auditEntries.toString()).doesNotContain(ticket).doesNotContain(fresh);
+      assertThat(
+              management(
+                      "PUT",
+                      "/platform/tenants/" + UUID.randomUUID() + "/identity/users/" + user,
+                      manager.token(),
+                      Map.of("version", 0, "status", "DISABLED"))
+                  .statusCode())
+          .isEqualTo(404);
+      secret = fresh;
+      var tenantManager = managementFixture(true);
+      assertThat(management("GET", "/users", tenantManager.token(), Map.of()).statusCode())
+          .isEqualTo(200);
+      assertThat(management("GET", prefix + "/users", tenantManager.token(), Map.of()).statusCode())
+          .isEqualTo(401);
+      var administrator =
+          json(management("GET", prefix + "/users/" + user, manager.token(), Map.of())).get("data");
+      var lastAdministrator =
+          management(
+              "PUT",
+              prefix + "/users/" + user,
+              manager.token(),
+              Map.of("version", administrator.get("version").asLong(), "status", "DISABLED"));
+      assertThat(lastAdministrator.statusCode()).isEqualTo(409);
+      assertThat(json(lastAdministrator).get("code").asString()).isEqualTo("LAST_TENANT_ADMIN");
+      jdbc.update("UPDATE sys_tenant SET status='DISABLED' WHERE id=?", tenant);
+      try {
+        for (String resource :
+            java.util.List.of("users", "roles", "permissions", "sessions", "audits")) {
+          var unavailable = management("GET", prefix + "/" + resource, manager.token(), Map.of());
+          assertThat(unavailable.statusCode()).as(resource).isEqualTo(403);
+          assertThat(json(unavailable).get("code").asString()).isEqualTo("TENANT_UNAVAILABLE");
+        }
+      } finally {
+        jdbc.update("UPDATE sys_tenant SET status='ACTIVE' WHERE id=?", tenant);
+      }
+
+    } finally {
+      jdbc.update(
+          "UPDATE oauth2_registered_client SET client_id=? WHERE id=?",
+          "retired-reset-" + manager.client().id(),
+          manager.client().id());
+    }
+  }
+
+  @Test
+  void projectConsoleHttpCreatesProfilesGroupsAndManualPermissionsForIndependentClient()
+      throws Exception {
+    ordinary();
+    var administrator = platformManager(true);
+    assertThat(administrator.client().clientId()).isNotEqualTo("identity-admin-platform");
+    String token = administrator.token(), prefix = "/platform/tenants/" + tenant + "/identity";
+    var groups = management("GET", prefix + "/groups", token, Map.of());
+    assertThat(groups.statusCode()).withFailMessage(groups.body()).isEqualTo(200);
+    long tree = json(groups).path("data").path("organization_version").asLong();
+    var create =
+        management(
+            "POST",
+            prefix + "/groups",
+            token,
+            Map.of("code", "engineering", "name", "研发部", "organization_version", tree));
+    assertThat(create.statusCode()).withFailMessage(create.body()).isEqualTo(200);
+    var group = json(create).path("data");
+    String groupId = group.path("id").asString();
+    var injected =
+        management(
+            "POST",
+            prefix + "/groups",
+            token,
+            Map.of(
+                "code",
+                "other",
+                "name",
+                "其他",
+                "organization_version",
+                tree + 1,
+                "tenant_id",
+                tenant));
+    assertThat(injected.statusCode()).withFailMessage(injected.body()).isEqualTo(400);
+    String account = "profile-" + UUID.randomUUID();
+    var command = new HashMap<String, Object>();
+    command.put("username", account);
+    command.put("display_name", "张工");
+    command.put("real_name", "张测试");
+    command.put("employee_no", "E-" + UUID.randomUUID());
+    command.put("contact_email", "contact@example.test");
+    command.put("phone", "+86 13800000000");
+    command.put("avatar_url", "/avatars/one.png");
+    command.put("description", "研发用户");
+    command.put(
+        "groups",
+        java.util.List.of(Map.of("id", groupId, "version", group.path("version").asLong())));
+    command.put("roles", java.util.List.of());
+    var created = management("POST", prefix + "/users", token, command);
+    assertThat(created.statusCode()).withFailMessage(created.body()).isEqualTo(200);
+    String id = json(created).path("data").path("id").asString();
+    var detail = management("GET", prefix + "/users/" + id, token, Map.of());
+    assertThat(detail.statusCode()).withFailMessage(detail.body()).isEqualTo(200);
+    var row = json(detail).path("data");
+    assertThat(row.path("contact_email").asString()).isEqualTo("contact@example.test");
+    assertThat(row.path("group_names").asString()).isEqualTo("研发部");
+    assertThat(row.has("password_hash")).isFalse();
+    var filtered =
+        management(
+            "GET",
+            prefix + "/users?group_id=" + groupId + "&status=PENDING_ACTIVATION",
+            token,
+            Map.of());
+    assertThat(filtered.statusCode()).withFailMessage(filtered.body()).isEqualTo(200);
+    assertThat(json(filtered).path("data").path("items").size()).isEqualTo(1);
+    var updated =
+        management(
+            "PUT",
+            prefix + "/users/" + id + "/profile",
+            token,
+            Map.of(
+                "version",
+                row.path("version").asLong(),
+                "display_name",
+                "新姓名",
+                "real_name",
+                "李测试"));
+    assertThat(updated.statusCode()).withFailMessage(updated.body()).isEqualTo(200);
+    var cleared = json(management("GET", prefix + "/users/" + id, token, Map.of())).path("data");
+    assertThat(cleared.path("contact_email").isNull()).isTrue();
+    var audit =
+        management(
+            "GET",
+            prefix + "/audits?action=identity.user.profile&target_id=" + id,
+            token,
+            Map.of());
+    assertThat(audit.statusCode()).withFailMessage(audit.body()).isEqualTo(200);
+    assertThat(audit.body()).doesNotContain("contact@example.test", "13800000000", "张测试", "李测试");
+    assertThat(management("GET", "/groups", token, Map.of()).statusCode()).isEqualTo(401);
+    String business = "console-" + UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO sys_service_audience(audience,owner_service) VALUES(?,?)", business, business);
+    var catalog = management("GET", "/platform/permissions", token, Map.of());
+    assertThat(catalog.statusCode()).withFailMessage(catalog.body()).isEqualTo(200);
+    var definition = new HashMap<String, Object>();
+    definition.put("code", business + ":read");
+    definition.put("name", "读取项目");
+    definition.put("owner_service", business);
+    definition.put("group_code", business);
+    definition.put("group_name", "项目管理");
+    definition.put("resource_code", "project");
+    definition.put("resource_name", "项目");
+    definition.put("action_code", "read");
+    definition.put("oauth_scope", "project.read");
+    definition.put("supported_data_scopes", java.util.List.of("SELF", "TENANT"));
+    definition.put("catalog_version", json(catalog).path("data").path("catalog_version").asLong());
+    var permission = management("POST", "/platform/permissions", token, definition);
+    assertThat(permission.statusCode()).withFailMessage(permission.body()).isEqualTo(200);
+    assertThat(json(permission).path("data").path("permission").path("source").asString())
+        .isEqualTo("MANUAL");
   }
 
   private Map<String, Object> technicalClientCommand(String id) {
@@ -3050,6 +3359,19 @@ class BrowserLoginHttpTest {
   }
 
   @Test
+  void platformLoginPageHasNoTenantEntryWhileBusinessLoginKeepsTenantFields() throws Exception {
+    var platform = get("/identity/login?realm=PLATFORM");
+    assertThat(platform.statusCode()).isEqualTo(200);
+    assertThat(platform.body()).contains("平台管理员登录", "name=\"realm\" value=\"PLATFORM\"");
+    assertThat(platform.body())
+        .doesNotContain("name=\"tenant_code\"", "<select", "/identity/password/reset");
+    var tenant = get("/identity/login?realm=TENANT&tenant_code=alpha");
+    assertThat(tenant.statusCode()).isEqualTo(200);
+    assertThat(tenant.body())
+        .contains("name=\"tenant_code\"", "value=\"alpha\"", "value=\"TENANT\"");
+  }
+
+  @Test
   void generatedAdminPagesServeOnlyKnownSpaPathsAndNeverRefreshSsoCookie() throws Exception {
     var root = get("/identity/admin/");
     assertThat(root.statusCode()).isEqualTo(200);
@@ -3061,12 +3383,31 @@ class BrowserLoginHttpTest {
     assertThat(get("/identity/admin/account").statusCode()).isEqualTo(200);
     assertThat(get("/identity/admin/platform/clients").statusCode()).isEqualTo(200);
     assertThat(get("/identity/admin/platform/security").statusCode()).isEqualTo(200);
+    assertThat(get("/identity/admin/platform/monitoring").statusCode()).isEqualTo(200);
+    assertThat(get("/identity/admin/platform/permissions").statusCode()).isEqualTo(200);
+    String tenantPages = "/identity/admin/platform/tenants/" + UUID.randomUUID() + "/identity/";
+    for (String page :
+        java.util.List.of(
+            "users", "roles", "roles/" + UUID.randomUUID(), "groups", "sessions", "audits")) {
+      var response = get(tenantPages + page);
+      assertThat(response.statusCode()).as(page).isEqualTo(200);
+      assertThat(response.body()).contains("<div id=\"app\"></div>");
+      assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+    }
+    assertThat(get("/identity/admin/platform/audits").statusCode()).isEqualTo(200);
+    assertThat(get(tenantPages + "permissions").statusCode()).isEqualTo(404);
+    for (String retired :
+        java.util.List.of(
+            "users", "roles", "roles/" + UUID.randomUUID(), "permissions", "sessions", "audits"))
+      assertThat(get("/identity/admin/" + retired).statusCode()).as(retired).isEqualTo(404);
     var asset = Pattern.compile("src=\"([^\"]+\\.js)\"").matcher(root.body());
     assertThat(asset.find()).isTrue();
     assertThat(get(asset.group(1)).statusCode()).isEqualTo(200);
     for (String missing :
         java.util.List.of(
             "/identity/admin/unknown-page",
+            tenantPages + "unknown-page",
+            tenantPages + "users/unknown-action",
             "/identity/admin/assets/absent.js",
             "/identity/admin/src/main.ts")) {
       var absent = get(missing);
@@ -4933,7 +5274,7 @@ class BrowserLoginHttpTest {
                     "SELECT auth_version FROM sys_user WHERE id=?", Long.class, fixture.target()));
     doThrow(new DataAccessResourceFailureException("DO_NOT_ECHO_MANAGED_SESSIONS_AUDIT"))
         .when(sessionQueries)
-        .audit(any(), any(), anyString(), anyString(), any(), anyInt(), anyString());
+        .audit(any(), eq("TENANT"), any(), anyString(), anyString(), any(), anyInt(), anyString());
     try {
       for (String path :
           java.util.List.of(
@@ -6350,7 +6691,7 @@ class BrowserLoginHttpTest {
     for (String permission : java.util.List.of("identity:audit:read")) {
       String[] parts = permission.split(":");
       jdbc.update(
-          "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'安全管理','identity-service','TENANT','identity','身份',?,'安全资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
+          "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'安全管理','identity-service','TENANT','identity','身份',?,'安全资源',?,ARRAY['TENANT'],?) ON CONFLICT DO NOTHING",
           permission,
           parts[1],
           parts[2],
@@ -6698,7 +7039,7 @@ class BrowserLoginHttpTest {
         "INSERT INTO sys_service_audience(audience,owner_service) VALUES(?,?)", audience, audience);
     for (var entry : Map.of(read, readScope, write, writeScope).entrySet())
       jdbc.update(
-          "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'实时权限',?,'TENANT','native','原生测试',?,'测试资源',?,ARRAY['SELF','TENANT'],?)",
+          "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'实时权限',?,'TENANT','native','原生测试',?,'测试资源',?,ARRAY['SELF','TENANT'],?)",
           entry.getKey(),
           audience,
           tag,
@@ -8150,7 +8491,7 @@ class BrowserLoginHttpTest {
     String tag = UUID.randomUUID().toString(), permission = "identity:security:live-" + tag;
     String scope = "native.security." + tag;
     jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES(?,'策略测试','identity-service','TENANT','native','测试',?,'策略','manage',ARRAY['TENANT'],?)",
+        "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,supported_data_scopes,oauth_scope) VALUES ('PUBLISHED',?,'策略测试','identity-service','TENANT','native','测试',?,'策略','manage',ARRAY['TENANT'],?)",
         permission,
         tag,
         scope);
@@ -8232,7 +8573,7 @@ class BrowserLoginHttpTest {
         scope = "native.platform." + tag,
         permission = "platform:native:" + tag;
     jdbc.update(
-        "INSERT INTO sys_permission(code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES(?,'平台操作','identity-service','PLATFORM','native','测试',?,'平台','manage',?)",
+        "INSERT INTO sys_permission(source,code,name,owner_service,principal_type,group_code,group_name,resource_code,resource_name,action_code,oauth_scope) VALUES ('PUBLISHED',?,'平台操作','identity-service','PLATFORM','native','测试',?,'平台','manage',?)",
         permission,
         tag,
         scope);

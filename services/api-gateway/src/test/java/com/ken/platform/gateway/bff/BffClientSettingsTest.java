@@ -70,7 +70,7 @@ class BffClientSettingsTest {
     assertThat(platform.getRedirectUri())
         .isEqualTo("http://localhost:18080/bff/identity/platform/callback");
     assertThat(platform.getScopes())
-        .contains("profile", "platform.tenants")
+        .contains("profile", "platform.tenants", "platform.identity")
         .noneMatch(scope -> scope.startsWith("identity."));
     assertThat(settings.client(BffNamespace.TENANT).getScopes())
         .contains("identity.users", "identity.audit")

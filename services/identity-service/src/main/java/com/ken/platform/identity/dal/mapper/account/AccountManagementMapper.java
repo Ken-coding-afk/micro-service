@@ -104,6 +104,10 @@ public interface AccountManagementMapper {
   int grantCorePermissions(
       @Param("role") UUID role, @Param("tenant") UUID tenant, @Param("codes") List<String> codes);
 
+  @org.apache.ibatis.annotations.Update(
+      "UPDATE sys_role SET version=version+1,updated_at=now() WHERE tenant_id=#{tenant} AND id=#{role}")
+  void touchRole(@Param("tenant") UUID tenant, @Param("role") UUID role);
+
   @Insert("INSERT INTO sys_user_role(tenant_id,user_id,role_id) VALUES(#{tenant},#{user},#{role})")
   void initialMembership(
       @Param("tenant") UUID tenant, @Param("user") UUID user, @Param("role") UUID role);

@@ -20,6 +20,12 @@ import org.springframework.security.web.server.savedrequest.NoOpServerRequestCac
 @Configuration(proxyBeanMethods = false)
 public class GatewaySecurityConfiguration {
   @Bean
+  com.ken.platform.gateway.bff.BffIdentityClient bffIdentity(
+      ServiceDiscovery discovery, RuntimeParameters parameters, Clock clock) {
+    return new com.ken.platform.gateway.bff.BffIdentityClient(discovery, parameters, clock);
+  }
+
+  @Bean
   GatewayRoutes platformGatewayRoutes(RuntimeParameters parameters, GatewayProperties properties) {
     return new GatewayRoutes(properties);
   }

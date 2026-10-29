@@ -17,7 +17,11 @@ public final class AuditManagementController {
     this.audits = audits;
   }
 
-  @GetMapping({"/audits", "/platform/audits"})
+  @GetMapping({
+    "/audits",
+    "/platform/audits",
+    "/platform/tenants/{managementTenant}/identity/audits"
+  })
   ResponseEntity<Map<String, Object>> list(
       jakarta.servlet.http.HttpServletRequest request,
       @RequestParam(defaultValue = "0") int page,

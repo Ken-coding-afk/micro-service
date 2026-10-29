@@ -22,6 +22,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Controller
 public final class LoginPageController {
   private final PasswordLoginService service;
+  private final String projectName;
+  private final String logoUrl;
   private final SessionCleanup cleanup;
   private final SecurityPolicies policies;
   private final LoginFailures failures;
@@ -36,8 +38,16 @@ public final class LoginPageController {
       LoginFailures failures,
       org.springframework.beans.factory.ObjectProvider<
               com.ken.platform.identity.config.FederationProviders>
-          external) {
+          external,
+      com.ken.platform.foundation.config.RuntimeParameters parameters,
+      org.springframework.core.env.Environment environment) {
     this.service = service;
+    var brand = parameters.identityAdminBrand();
+    this.projectName =
+        brand.projectDisplayName().isEmpty()
+            ? environment.getRequiredProperty("PROJECT_CODE")
+            : brand.projectDisplayName();
+    this.logoUrl = brand.logoUrl();
     this.cleanup = cleanup;
     this.policies = policies;
     this.failures = failures;
@@ -56,6 +66,17 @@ public final class LoginPageController {
     Object status = request.getAttribute("loginStatus");
     if (status instanceof Integer value) response.setStatus(value);
     String realm = request.getParameter("realm");
+    var pending = pendingAuthorization(request, response);
+    String[] client = pending == null ? null : pending.getParameterValues("client_id");
+    boolean platformLogin =
+        "PLATFORM".equals(realm)
+            || (client != null
+                && client.length == 1
+                && "identity-admin-platform".equals(client[0]));
+    model.addAttribute("platformLogin", platformLogin);
+    model.addAttribute("projectName", projectName);
+    model.addAttribute("logoUrl", logoUrl);
+    if (platformLogin) realm = "PLATFORM";
     model.addAttribute(
         "realm",
         Set.of("TENANT", "PLATFORM").contains(realm == null ? "" : realm) ? realm : "TENANT");
@@ -112,6 +133,9 @@ public final class LoginPageController {
       if (changed) {
         model.addAttribute("loginError", "PASSWORD_CHANGED_CLEANUP_PENDING");
         model.addAttribute("realm", owner.realm().name());
+        model.addAttribute("platformLogin", owner.tenant() == null);
+        model.addAttribute("projectName", projectName);
+        model.addAttribute("logoUrl", logoUrl);
         model.addAttribute("tenantCode", "");
         return "identity/login";
       }

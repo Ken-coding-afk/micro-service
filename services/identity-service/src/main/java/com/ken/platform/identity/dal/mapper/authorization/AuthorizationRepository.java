@@ -48,6 +48,10 @@ public class AuthorizationRepository {
         .toList();
   }
 
+  public List<AuthorizationMapper.Origin> origins(UUID tenant, UUID user) {
+    return mapper.origins(tenant, user);
+  }
+
   private static Set<DataScope> scopes(String raw) {
     if (raw == null || raw.isEmpty()) {
       return Set.of();

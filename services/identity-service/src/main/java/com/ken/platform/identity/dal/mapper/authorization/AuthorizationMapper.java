@@ -41,11 +41,11 @@ public interface AuthorizationMapper {
 
   @Select(
       """
-      SELECT r.id AS "roleId", rp.permission_code AS "permissionCode", rp.data_scope AS "dataScope",
+      SELECT DISTINCT r.id AS "roleId", rp.permission_code AS "permissionCode", rp.data_scope AS "dataScope",
              r.status = 'ACTIVE' AS "roleActive", r.authorization_version AS "authorizationVersion"
       FROM sys_user u
       JOIN sys_tenant t ON t.id = u.tenant_id
-      JOIN sys_user_role ur ON ur.tenant_id = u.tenant_id AND ur.user_id = u.id
+      JOIN sys_user_role_source ur ON ur.tenant_id = u.tenant_id AND ur.user_id = u.id
       JOIN sys_role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id
       JOIN sys_role_permission rp ON rp.tenant_id = r.tenant_id AND rp.role_id = r.id
       WHERE u.tenant_id = #{tenantId} AND u.id = #{userId} AND u.status = 'ACTIVE'
@@ -53,4 +53,15 @@ public interface AuthorizationMapper {
       ORDER BY rp.permission_code, r.id
       """)
   List<GrantRow> grants(@Param("tenantId") UUID tenantId, @Param("userId") UUID userId);
+
+  record Origin(UUID roleId, String sourceType, UUID groupId, String groupName, String groupPath) {}
+
+  @Select(
+      """
+      SELECT role_id AS "roleId",source_type AS "sourceType",group_id AS "groupId",
+        group_name AS "groupName",group_path AS "groupPath"
+      FROM sys_user_role_source WHERE tenant_id=#{tenant} AND user_id=#{user}
+      ORDER BY role_id,source_type,group_id
+      """)
+  List<Origin> origins(@Param("tenant") UUID tenant, @Param("user") UUID user);
 }

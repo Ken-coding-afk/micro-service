@@ -17,6 +17,9 @@ import tools.jackson.databind.json.JsonMapper;
 public final class BuiltinPermissionCatalog {
   public static final List<String> PROTECTED_TENANT_PERMISSIONS =
       List.of(
+          "identity:group:read",
+          "identity:group:manage",
+          "identity:group:assign",
           "identity:user:read",
           "identity:user:manage",
           "identity:role:read",
@@ -101,6 +104,7 @@ public final class BuiltinPermissionCatalog {
 
   public static List<PermissionCatalogMapper.Row> entries() {
     List<PermissionCatalogMapper.Row> rows = new ArrayList<>();
+    tenant(rows, "group", "用户组", "identity.groups", "read", "manage", "assign");
     tenant(rows, "user", "用户", "identity.users", "read", "manage");
     tenant(rows, "role", "角色", "identity.roles", "read", "manage", "assign");
     tenant(rows, "permission", "权限目录", "identity.permissions", "read");
@@ -110,6 +114,8 @@ public final class BuiltinPermissionCatalog {
     tenant(rows, "security", "安全策略", "identity.security", "read", "manage");
     tenant(rows, "audit", "审计", "identity.audit", "read");
     platform(rows, "admin", "平台管理员", "platform.admins", "read", "manage");
+    platform(rows, "permission", "业务权限目录", "platform.permissions", "read", "manage");
+    platform(rows, "identity", "租户身份管理", "platform.identity", "read", "manage");
     platform(rows, "tenant", "租户", "platform.tenants", "read", "manage");
     platform(rows, "client", "客户端", "platform.clients", "read", "manage");
     platform(rows, "security", "平台安全策略", "platform.security", "read", "manage");
@@ -169,13 +175,15 @@ public final class BuiltinPermissionCatalog {
               type.equals("TENANT") ? 0 : 100,
               dataScope,
               scope,
-              "ACTIVE"));
+              "ACTIVE",
+              "BUILTIN"));
     }
   }
 
   private static boolean sameMeaning(
       PermissionCatalogMapper.Row old, PermissionCatalogMapper.Row row) {
-    return old.ownerService().equals(row.ownerService())
+    return old.source().equals("BUILTIN")
+        && old.ownerService().equals(row.ownerService())
         && old.principalType().equals(row.principalType())
         && old.resourceCode().equals(row.resourceCode())
         && old.actionCode().equals(row.actionCode())

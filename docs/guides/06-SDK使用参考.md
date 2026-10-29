@@ -26,6 +26,33 @@ Java 服务声明 java-sdk 依赖，启动类保留 `@PlatformService` 和 Sprin
 | 消息 | RabbitEvents.enqueue/dispatchOne/consume | enqueue + RabbitEvents.dispatch_one/consume | 已有 Outbox/Inbox；业务提供事件、事务、消费者和运行周期 |
 | 缓存/对象边界 | TenantResources | TenantResources | 仅提供租户键/授权边界，不是 Redis/S3 客户端 |
 
+### 从业务操作到账号权限
+
+以现有样例“读取条目”为例：研发在所属服务 `permissions.yaml` 中声明编码、名称、oauth_scope 和支持的 SELF/TENANT 范围，通过受限发布客户端发布目录。命令结构为：
+
+```powershell
+uv run python scripts/deploy/sync_permissions.py --identity-origin <身份服务地址> --app-env local --client-id <该服务目录发布客户端> --secret-file <包外秘密文件> --manifest <服务permissions.yaml> --release-version <本次发行版本>
+```
+
+也可在后台“权限管理”中为已登记业务服务创建手工权限。手工项与发布项按来源隔离，不能互相覆盖。平台管理员选定租户后进入“角色管理”，建立普通角色，在“权限授权”中选择操作及数据范围，再从用户的“分配角色”或用户组的“角色授权”关联角色。一个账号可直接或通过多个组取得角色；新增目录项不会自动授予现有角色，也不直接向账号挂权限。业务应用还需允许该租户及对应 scope/audience，用户须以该租户账号登录业务应用。
+
+组织层级不继承角色；只有直接加入且自身及祖先均启用的组提供角色。停用父组后，其子树的组授权在下一次内省消失，直接角色继续有效。Java/Python 都使用原有检查入口，不另查组织表。SELF/TENANT 仍是业务数据范围，组织树不会自动变成部门数据权限。管理 API 的字段、版本及外部调用示例见[功能与接口清单](08-管理后台功能与身份接口清单.md)。
+
+Java 样例 `ItemController.list` 的入口检查如下：
+
+```java
+@RequirePermission(value = "java-item:read", scope = "java.items.read")
+```
+
+Python 样例使用同一权限体系，语法为：
+
+```python
+read_permission = require_permission("python.items.read", "python-item:read")
+# FastAPI 参数：principal: Annotated[CurrentPrincipal, Depends(read_permission)]
+```
+
+项目中同一个逻辑操作使用所属服务发布的稳定权限编码，不按语言再给账号配置一套角色。样例 Java/Python 拥有各自资源，所以演示清单的编码不同。SDK 检查可信身份、scope、audience 和操作权限；业务服务/仓储依 `CurrentPrincipal` 的 data_scopes 落实 SELF 的所有者条件或 TENANT 的本租户条件，数据库 RLS 维持租户边界。管理台中勾选权限不会自动给未接入这些检查的业务接口加上授权。
+
 ## 3. 请求、日志与错误
 
 普通业务调用经过鉴权后取得可信租户和主体。Java Servlet/MDC、Reactor/Context Propagation、Python contextvars 自动关联 request_id、tenant_id、trace_id，服务字段为 service。未认证、平台身份没有租户时留空，不伪造默认租户。

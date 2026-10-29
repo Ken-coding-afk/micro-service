@@ -47,6 +47,24 @@ export interface Consent {
 }
 
 const messages: Record<string, string> = {
+  MANAGEMENT_TARGET_REQUIRED: '请先选择要管理的租户。',
+  ACCOUNT_CONFLICT: '当前租户内账号或工号已存在，请核对后再创建。',
+  EMPLOYEE_NO_CONFLICT: '当前租户内工号已存在。',
+  GROUP_CODE_CONFLICT: '当前租户内用户组编码已存在。',
+  GROUP_CYCLE: '不能将组织移动到自身或自己的下级。',
+  GROUP_NOT_EMPTY: '请先移除该组的下级组织、直接成员和角色，再删除。',
+  GROUP_UNAVAILABLE: '当前组织或上级已停用，请先核对组织状态。',
+  GROUP_VERSION_CONFLICT: '用户组已变化，请重新读取后核对。',
+  ORGANIZATION_VERSION_CONFLICT: '组织结构已变化，请刷新后重新操作。',
+  GROUP_MEMBER_NOT_DIRECT: '此用户属于下级组织，请到实际所属组移除。',
+  CATALOG_VERSION_CONFLICT: '权限目录已变化，请重新读取后核对。',
+  PERMISSION_CODE_CONFLICT: '权限编码已存在。',
+  PERMISSION_SOURCE_PROTECTED: '此权限由框架或服务维护，不能手工修改。',
+  PERMISSION_SOURCE_CONFLICT: '权限编码已被其他来源占用。',
+
+  TENANT_UNAVAILABLE: '当前租户已停用或到期，请到“租户管理”核对状态。',
+  PASSWORD_RESET_ALREADY_ISSUED:
+    '本次重置凭证已签发，不能再次展示。请核对交付结果；重新发起会使旧凭证失效。',
   INCOMPATIBLE_API: '管理页面与服务版本不兼容，请联系管理员。',
   INVALID_TENANT_CODE: '请输入有效的组织代码。',
   RECENT_AUTHENTICATION_REQUIRED: '为保护账号，请重新登录后再执行此操作。',
@@ -67,7 +85,7 @@ const messages: Record<string, string> = {
   ROLE_CODE_CONFLICT: '当前组织内已有此角色编码，请先查询现有角色。',
   ROLE_INVALID: '角色字段或源角色授权不符合当前规则，请核对后再提交。',
   ROLE_DESCRIPTION_INVALID: '角色说明需为1024字以内纯文本，除换行外不能包含控制字符或尖括号。',
-  ROLE_NOT_EMPTY: '请先移除此角色的全部成员，再重新核对后删除。',
+  ROLE_NOT_EMPTY: '请先移除此角色的用户和用户组引用，再重新核对后删除。',
   ROLE_REFERENCED: '角色仍有历史授权引用，当前不能删除；可保留记录并停用。',
   PERMISSION_CATALOG_VERSION_CONFLICT: '权限目录已变化，请重新核对可授范围。',
   MANAGEMENT_NOT_ALLOWED: '目标或完整角色授权超出当前管理范围。',
@@ -198,44 +216,32 @@ export async function logout(realm: Realm): Promise<void> {
   await request(`${namespace(realm)}/logout`, 'POST', undefined, protection)
 }
 
-export async function current(realm: Realm): Promise<Me> {
-  const value = await read<Me>(realm, '/me')
+export async function current(): Promise<Me> {
+  const value = await read<Me>('platform', '/me')
   if (
     !value ||
     value.view !== 'APPLICATION_EFFECTIVE' ||
-    value.client_id !== `identity-admin-${realm}` ||
-    value.principal_type !== (realm === 'platform' ? 'platform' : 'user') ||
+    value.client_id !== 'identity-admin-platform' ||
+    value.principal_type !== 'platform' ||
     typeof value.sub !== 'string' ||
     !value.profile ||
-    (realm === 'platform' ? value.tenant_id !== null : typeof value.tenant_id !== 'string')
+    value.tenant_id !== null
   ) {
     throw new IdentityError(503, 'INVALID_IDENTITY_RESPONSE')
   }
   return value
 }
 
-export async function login(realm: Realm, tenantCode: string): Promise<void> {
-  if (realm === 'tenant' && !/^[a-z][a-z0-9-]{0,63}$/.test(tenantCode))
-    throw new IdentityError(400, 'INVALID_TENANT_CODE')
-  const protection = await csrf(realm)
-  try {
-    sessionStorage.setItem('identity.admin.realm', realm)
-  } catch {
-    /* 界面偏好不可用不阻止认证。 */
-  }
+export async function login(): Promise<void> {
+  const protection = await csrf('platform')
   const form = document.createElement('form')
-  form.action = `${namespace(realm)}/login`
+  form.action = `${namespace('platform')}/login`
   form.method = 'POST'
-  for (const [name, value] of Object.entries({
-    _csrf: protection.token,
-    ...(realm === 'tenant' ? { tenant_code: tenantCode } : {}),
-  })) {
-    const input = document.createElement('input')
-    input.type = 'hidden'
-    input.name = name
-    input.value = value
-    form.append(input)
-  }
+  const input = document.createElement('input')
+  input.type = 'hidden'
+  input.name = '_csrf'
+  input.value = protection.token
+  form.append(input)
   document.body.append(form)
   form.submit()
 }

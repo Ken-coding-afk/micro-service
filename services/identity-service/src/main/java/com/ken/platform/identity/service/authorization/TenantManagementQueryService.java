@@ -2,7 +2,6 @@ package com.ken.platform.identity.service.authorization;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ken.platform.foundation.data.TenantTransactions;
-import com.ken.platform.foundation.http.CallContexts;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.foundation.security.DataScope;
 import com.ken.platform.identity.dal.mapper.authorization.AuthorizationRepository;
@@ -41,7 +40,17 @@ public final class TenantManagementQueryService {
       @JsonProperty("display_name") String displayName,
       String status,
       @JsonProperty("must_change_password") boolean mustChangePassword,
-      long version) {}
+      long version,
+      @JsonProperty("real_name") String realName,
+      @JsonProperty("employee_no") String employeeNo,
+      @JsonProperty("contact_email") String contactEmail,
+      String phone,
+      @JsonProperty("avatar_url") String avatarUrl,
+      String description,
+      @JsonProperty("created_at") Instant createdAt,
+      @JsonProperty("updated_at") Instant updatedAt,
+      @JsonProperty("last_login_at") Instant lastLoginAt,
+      @JsonProperty("group_names") String groupNames) {}
 
   public record Role(
       UUID id,
@@ -121,7 +130,11 @@ public final class TenantManagementQueryService {
       @JsonProperty("role_id") UUID roleId,
       @JsonProperty("data_scope") DataScope dataScope,
       @JsonProperty("role_active") boolean roleActive,
-      @JsonProperty("authorization_version") long authorizationVersion) {}
+      @JsonProperty("authorization_version") long authorizationVersion,
+      @JsonProperty("source_type") String sourceType,
+      @JsonProperty("group_id") UUID groupId,
+      @JsonProperty("group_name") String groupName,
+      @JsonProperty("group_path") String groupPath) {}
 
   public record Decision(
       boolean allowed,
@@ -180,14 +193,19 @@ public final class TenantManagementQueryService {
     this.clock = clock;
   }
 
-  public Page<User> users(int page, int size, String query) {
+  public Page<User> users(
+      int page, int size, String query, String status, UUID group, boolean descendants) {
     int offset = offset(page, size);
+    if (!java.util.Set.of("", "ACTIVE", "DISABLED", "PENDING_ACTIVATION").contains(status))
+      throw invalid();
     if (query == null || query.length() > 100) throw invalid();
     return authorized(
         "identity:user:read",
         null,
         access -> {
-          var rows = queries.users(access.tenant(), query.strip(), offset, size + 1);
+          var rows =
+              queries.users(
+                  access.tenant(), status, group, descendants, query.strip(), offset, size + 1);
           return page(page, size, rows.stream().map(TenantManagementQueryService::user).toList());
         });
   }
@@ -313,6 +331,13 @@ public final class TenantManagementQueryService {
                   authorizationData.permissions(),
                   authorizationData.grants(access.tenant(), target),
                   null);
+          var origins =
+              authorizationData.origins(access.tenant(), target).stream()
+                  .collect(
+                      Collectors.groupingBy(
+                          com.ken.platform.identity.dal.mapper.authorization.AuthorizationMapper
+                                  .Origin
+                              ::roleId));
           var decisions = new TreeMap<String, Decision>();
           evaluated
               .decisions()
@@ -324,13 +349,20 @@ public final class TenantManagementQueryService {
                               value.allowed(),
                               value.dataScope(),
                               value.sources().stream()
-                                  .map(
+                                  .flatMap(
                                       source ->
-                                          new Source(
-                                              source.roleId(),
-                                              source.dataScope(),
-                                              source.roleActive(),
-                                              source.authorizationVersion()))
+                                          origins.getOrDefault(source.roleId(), List.of()).stream()
+                                              .map(
+                                                  origin ->
+                                                      new Source(
+                                                          source.roleId(),
+                                                          source.dataScope(),
+                                                          source.roleActive(),
+                                                          source.authorizationVersion(),
+                                                          origin.sourceType(),
+                                                          origin.groupId(),
+                                                          origin.groupName(),
+                                                          origin.groupPath())))
                                   .toList(),
                               value.reasons())));
           return new EffectivePermissions(
@@ -349,17 +381,18 @@ public final class TenantManagementQueryService {
         target,
         () -> {
           UUID actor = authorization.actorFor(operation);
-          return transactions.execute(
+          return authorization.execute(
+              transactions,
               () -> {
-                UUID tenant = CallContexts.current().tenantId();
-                long catalog = users.lockCatalog();
-                var row = users.lockTenant(tenant);
+                UUID tenant = authorization.tenantId();
+                long catalog = authorization.lockCatalog();
+                var row = authorization.lockTenant(tenant);
                 if (row == null
                     || !row.status().equals("ACTIVE")
                     || row.expiresAt() != null && !clock.instant().isBefore(row.expiresAt()))
                   throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
-                users.lockMemberRoles(tenant, List.of(actor));
-                var accounts = users.lockUsers(tenant, List.of(actor));
+                authorization.lockMemberRoles(tenant, authorization.userIds(actor, null));
+                var accounts = authorization.lockUsers(tenant, authorization.userIds(actor, null));
                 authorization.requireProtectedAdministrator(tenant, actor, operation, accounts);
                 // 查询在目录/租户锁内取一致快照；其他对象只读，不在账号锁之后逆序申请角色锁。
                 return action.apply(new Access(tenant, actor, catalog, accounts));
@@ -452,7 +485,17 @@ public final class TenantManagementQueryService {
         row.displayName(),
         row.status(),
         row.mustChangePassword(),
-        row.version());
+        row.version(),
+        row.realName(),
+        row.employeeNo(),
+        row.contactEmail(),
+        row.phone(),
+        row.avatarUrl(),
+        row.description(),
+        row.createdAt(),
+        row.updatedAt(),
+        row.lastLoginAt(),
+        row.groupNames());
   }
 
   private static Set<DataScope> scopes(String value) {

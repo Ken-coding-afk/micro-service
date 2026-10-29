@@ -22,13 +22,14 @@ let details: Profile
 let sessions: OwnSession[]
 let consents: Consent[]
 const owner: AccountContext = {
-  realm: 'tenant',
+  realm: 'platform',
+  targetTenant: 'tenant-one',
   me: {
     view: 'APPLICATION_EFFECTIVE',
     sub: 'owner',
-    tenant_id: 'tenant',
-    principal_type: 'user',
-    client_id: 'identity-admin-tenant',
+    tenant_id: null,
+    principal_type: 'platform',
+    client_id: 'identity-admin-platform',
     profile: {},
     audiences: {},
   },
@@ -103,7 +104,7 @@ describe('个人账号交互', () => {
     await wrapper.get('form').trigger('submit')
     expect(mockedWrite).toHaveBeenCalledOnce()
     expect(mockedWrite).toHaveBeenCalledWith(
-      'tenant',
+      'platform',
       '/me/profile',
       { version: 0, display_name: '本人草稿' },
       'PUT',
@@ -133,7 +134,7 @@ describe('个人账号交互', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(mockedWrite).toHaveBeenLastCalledWith(
-      'tenant',
+      'platform',
       '/me/profile',
       { version: 1, display_name: '我的修改' },
       'PUT',
@@ -165,7 +166,7 @@ describe('个人账号交互', () => {
     await wrapper.get('#confirm-password').setValue('example-new-password')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/me/password', {
+    expect(mockedWrite).toHaveBeenCalledWith('platform', '/me/password', {
       current_password: 'example-current-password',
       new_password: 'example-new-password',
     })
@@ -183,7 +184,7 @@ describe('个人账号交互', () => {
     await wrapper.findAll('tbody button')[1].trigger('click')
     await flushPromises()
     expect(mockedWrite).toHaveBeenCalledOnce()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/me/sessions/other:revoke')
+    expect(mockedWrite).toHaveBeenCalledWith('platform', '/me/sessions/other:revoke')
     expect(wrapper.text()).toContain('操作结果尚未确认')
     expect(wrapper.text()).not.toContain('会话已撤销')
     expect(owner.signedOut).not.toHaveBeenCalled()
@@ -199,7 +200,7 @@ describe('个人账号交互', () => {
     expect(mockedWrite).not.toHaveBeenCalled()
     await all?.trigger('click')
     await flushPromises()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/me/sessions:sign-out-all')
+    expect(mockedWrite).toHaveBeenCalledWith('platform', '/me/sessions:sign-out-all')
     expect(owner.signedOut).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
@@ -210,7 +211,7 @@ describe('个人账号交互', () => {
     consents = []
     await wrapper.findAll('tbody button')[0].trigger('click')
     await flushPromises()
-    expect(mockedWrite).toHaveBeenCalledWith('tenant', '/me/consents/external%3Aone:revoke')
+    expect(mockedWrite).toHaveBeenCalledWith('platform', '/me/consents/external%3Aone:revoke')
     expect(wrapper.text()).toContain('暂无需要管理的应用同意记录')
     wrapper.unmount()
   })

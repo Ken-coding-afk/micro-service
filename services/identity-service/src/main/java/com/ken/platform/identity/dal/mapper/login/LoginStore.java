@@ -235,6 +235,17 @@ public class LoginStore {
         value.restricted(),
         java.sql.Timestamp.from(value.createdAt()),
         java.sql.Timestamp.from(value.lastActivity()));
+    if (value.realm() == LoginRealm.TENANT)
+      scoped(
+          value.tenant(),
+          () -> {
+            jdbc.update(
+                "UPDATE sys_user SET last_login_at=? WHERE tenant_id=? AND id=?",
+                java.sql.Timestamp.from(value.createdAt()),
+                value.tenant(),
+                value.user());
+            return null;
+          });
   }
 
   public Session session(UUID id, boolean lock) {

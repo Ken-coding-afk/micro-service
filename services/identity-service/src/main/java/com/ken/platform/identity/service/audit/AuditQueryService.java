@@ -2,7 +2,6 @@ package com.ken.platform.identity.service.audit;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ken.platform.foundation.data.TenantTransactions;
-import com.ken.platform.foundation.http.CallContexts;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.identity.dal.mapper.audit.AuditQueryMapper;
 import com.ken.platform.identity.dal.mapper.user.UserManagementMapper;
@@ -111,18 +110,19 @@ public final class AuditQueryService {
           } else {
             UUID user = tenant.actorFor("identity:audit:read");
             rows =
-                tenants.execute(
+                tenant.execute(
+                    tenants,
                     () -> {
-                      UUID owner = CallContexts.current().tenantId();
-                      users.lockCatalog();
-                      var directory = users.lockTenant(owner);
+                      UUID owner = tenant.tenantId();
+                      tenant.lockCatalog();
+                      var directory = tenant.lockTenant(owner);
                       if (directory == null
                           || !directory.status().equals("ACTIVE")
                           || directory.expiresAt() != null
                               && !clock.instant().isBefore(directory.expiresAt()))
                         throw new PlatformException("TENANT_UNAVAILABLE", "租户当前不可用", 403);
-                      users.lockMemberRoles(owner, List.of(user));
-                      var acting = users.lockUsers(owner, List.of(user));
+                      tenant.lockMemberRoles(owner, tenant.userIds(user, null));
+                      var acting = tenant.lockUsers(owner, tenant.userIds(user, null));
                       tenant.requireProtectedAdministrator(
                           owner, user, "identity:audit:read", acting);
                       return queries.tenant(owner, filter);

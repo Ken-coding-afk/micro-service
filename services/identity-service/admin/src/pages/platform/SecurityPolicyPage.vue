@@ -23,6 +23,19 @@ const fields = [
   ['session_idle_seconds', '会话闲置有效期（秒）'],
   ['recent_auth_seconds', '近期认证有效期（秒）'],
 ] as const
+const groups = [
+  {
+    title: '密码要求',
+    description: '所有新设密码和密码重置均使用此规则。',
+    fields: fields.slice(0, 1),
+  },
+  { title: '登录保护', description: '按账号和来源 IP 限制失败尝试。', fields: fields.slice(1, 6) },
+  {
+    title: '会话与敏感操作',
+    description: '调整统一的会话期限与近期认证窗口。',
+    fields: fields.slice(6),
+  },
+]
 const state = ref<SecurityPolicy | null>(null)
 const values = reactive<Record<string, number>>({})
 const pending = ref(false),
@@ -98,8 +111,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="panel">
-    <h2>项目安全策略</h2>
-    <p class="muted">整个项目使用同一策略。不能覆盖协议算法、租户隔离或绕过现存保护。</p>
+    <p class="muted">以下设置作用于整个项目。</p>
     <p v-if="!readable" role="alert">仅有安全策略读取权限的平台管理员可访问。</p>
     <template v-else
       ><p v-if="message" role="status">{{ message }}</p>
@@ -107,10 +119,15 @@ onBeforeUnmount(() => {
       <form v-if="state" @submit.prevent="save">
         <p>版本 {{ state.version }}</p>
         <fieldset :disabled="pending || blocked || !manageable">
-          <label v-for="[key, label] in fields" :key="key"
-            >{{ label }}
-            <input v-model.number="values[key]" type="number" min="1" step="1" required /></label
-          ><label
+          <section v-for="group in groups" :key="group.title" class="policy-group">
+            <h2>{{ group.title }}</h2>
+            <p class="muted">{{ group.description }}</p>
+            <label v-for="[key, label] in group.fields" :key="key"
+              >{{ label }}
+              <input v-model.number="values[key]" type="number" min="1" step="1" required
+            /></label>
+          </section>
+          <label
             ><input v-model="confirmed" type="checkbox" />已核对密码、登录限制及现有会话影响</label
           ><button :disabled="!confirmed">保存策略</button>
         </fieldset>
@@ -127,7 +144,7 @@ form {
 fieldset {
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   border: 0;
   padding: 0;
 }
@@ -145,15 +162,15 @@ label:has(input[type='checkbox']) {
 input[type='number'] {
   box-sizing: border-box;
   width: 100%;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border: 1px solid #d5deea;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 button {
   width: fit-content;
   padding: 9px 16px;
   border: 1px solid #d5deea;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #fff;
   color: #254b84;
   cursor: pointer;
@@ -161,5 +178,17 @@ button {
 button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.policy-group {
+  display: grid;
+  grid-template-columns: minmax(240px, 420px);
+  gap: 12px;
+  border-bottom: 1px solid #e1e7ef;
+  padding-bottom: 24px;
+}
+.policy-group label {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  align-items: center;
 }
 </style>

@@ -2,6 +2,16 @@ export interface TenantUser {
   id: string
   username: string
   display_name: string
+  real_name: string | null
+  employee_no: string | null
+  contact_email: string | null
+  phone: string | null
+  avatar_url: string | null
+  description: string | null
+  created_at: string
+  updated_at: string
+  last_login_at: string | null
+  group_names: string | null
   status: 'ACTIVE' | 'DISABLED' | 'PENDING_ACTIVATION'
   must_change_password: boolean
   version: number
@@ -107,6 +117,10 @@ export interface EffectivePermissions {
       reasons: string[]
       sources: {
         role_id: string
+        source_type: 'DIRECT' | 'GROUP'
+        group_id: string | null
+        group_name: string | null
+        group_path: string | null
         data_scope: 'SELF' | 'TENANT'
         role_active: boolean
         authorization_version: number
