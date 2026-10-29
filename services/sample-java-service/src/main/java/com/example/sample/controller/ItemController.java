@@ -38,9 +38,14 @@ public class ItemController {
   @GetMapping
   @RequirePermission(value = "java-item:read", scope = "java.items.read")
   public ApiResponse<ItemPage> list(
-      @RequestParam(defaultValue = "1") @Min(1) int page,
-      @RequestParam(name = "page_size", defaultValue = "20") @Min(1) @Max(100) int size,
+      jakarta.servlet.http.HttpServletRequest request,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @AuthenticationPrincipal CurrentPrincipal principal) {
+    if (request.getParameterMap().containsKey("page_size")) {
+      throw new com.ken.platform.foundation.http.PlatformException(
+          "VALIDATION_ERROR", "分页参数请使用 page 和 size", 400);
+    }
     return ApiResponse.success(service.list(principal, page, size));
   }
 

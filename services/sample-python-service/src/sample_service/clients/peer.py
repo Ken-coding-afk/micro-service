@@ -14,7 +14,8 @@ class PeerPage(BaseModel):
     items: list[PeerItem]
     total: int
     page: int
-    page_size: int
+    size: int
+    has_more: bool
 
 
 class PeerResponse(BaseModel):

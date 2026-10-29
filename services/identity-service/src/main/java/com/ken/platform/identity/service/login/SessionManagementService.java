@@ -82,7 +82,7 @@ public final class SessionManagementService {
         null,
         () -> target,
         access -> {
-          if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE)
+          if (page < 0 || page > 10000 || size < 1 || size > 100)
             throw new PlatformException("INVALID_ARGUMENT", "分页范围不合法", 400);
           var rows = queries.list(access.tenant(), target, page * size, size + 1);
           var policy = policies.current(access.tenant());

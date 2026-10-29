@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 from pathlib import Path
 
@@ -10,16 +11,21 @@ from common import FRAMEWORK, read_yaml, source_files, write, write_yaml
 from registration import register, replace, replacements, validate_name, validate_package
 
 
-def service_readme(name: str, language: str, package: str) -> str:
+def service_readme(name: str, language: str, package: str, source: str = "submodule") -> str:
+    ownership = (
+        "本服务归主仓，直接随主仓提交；无需独立远程仓库或gitlink。"
+        if source == "local"
+        else "本服务作为固定submodule接入；先提交/push子仓，再提交主仓gitlink。"
+    )
     return f"""# {name}
 
-本服务的正常开发位置为宿主项目 services/{name}；SDK 来自 ../../sdk/{"java" if language == "java" else "python"}。初始服务属于主仓，独立新服务以固定 submodule 挂载。不把此服务单独 clone 到任意目录后假定能直接构建。
+本服务的正常开发位置为宿主项目 services/{name}；SDK 来自 ../../sdk/{"java" if language == "java" else "python"}。{ownership} 不把此服务单独 clone 到任意目录后假定能直接构建。
 
 在宿主根执行 uv run --frozen python scripts/init.py --env local --services {name}。技术登记与权限目录发布不等于给用户授权；平台管理员允许客户端的租户及 scope/audience，租户管理员分配角色权限后重新登录。然后 F5 service:{name} 或 uv run --frozen python scripts/dev.py {name}。
 
 API：/api/v1/{name}/items。未配置对端时 peer 演示返回 PEER_NOT_CONFIGURED。新增服务仓库的 config/nacos 只用于第一次接入时提供初始值，接入后的运行配置归宿主 config/nacos；升级不覆盖宿主配置。
 
-迁移在本服务维护，已共享版本不可改；测试只选受影响用例。子仓开发先建工作分支，先提交/push 子仓，再提交主仓 gitlink。不要 git submodule update --remote。
+迁移在本服务维护，已共享版本不可改；测试只选受影响用例。{ownership} 子仓不得 git submodule update --remote。
 """
 
 
@@ -73,7 +79,9 @@ Swagger 调试在 dev 命令加 --tenant-code <租户编码>；F5 准备任务�
 
 ## 4. 新增服务和协作
 
-新服务在兼容版本脚手架仓库运行 create_service.py --project-root <本项目绝对目录>，从标准样例生成独立目录；项目不保存第二份样例。自己提交/push 服务仓库后，在本项目：
+同仓新增服务：在固定兼容脚手架执行 `uv run --frozen python scripts/create_service.py --source local --project-root <本项目目录> --language python --name scoring-service --package scoring --port 48085`，会生成服务并更新登记、路由、IDE和CI矩阵，源码直接提交主仓；完成初始化与显式授权后运行。不会创建远程仓库或复制已有业务。
+
+独立分仓服务在兼容版本脚手架仓库运行 create_service.py --project-root <本项目绝对目录>，从标准样例生成独立目录；项目不保存第二份样例。自己提交/push 服务仓库后，在本项目：
 
 ```bash
 uv run --frozen python scripts/add_service.py --repo <远程URL> --ref <完整提交> --language python --name scoring-service --package scoring --port 48085
@@ -279,7 +287,9 @@ def generate(args: argparse.Namespace) -> None:
         service_files(root, language, name, package, peer)
         register(root, language, name, package, port + args.port_offset, peer)
 
-        write(root / "services" / name / "README.md", service_readme(name, language, package))
+        write(
+            root / "services" / name / "README.md", service_readme(name, language, package, "local")
+        )
     mappings = replacements("java", args.java_service, args.java_package, args.python_service)
     mappings |= replacements("python", args.python_service, args.python_package, args.java_service)
     mappings |= {
@@ -318,7 +328,9 @@ def generate(args: argparse.Namespace) -> None:
         "替换样例 API 后同步修改本项目的 smoke；不对 test/prod 执行。\n",
     )
     # 相同流水线交付新项目，仅移除框架维护专用 job。
-    copy_source(FRAMEWORK / ".github", root / ".github")
+    for path in (FRAMEWORK / ".github").rglob("*"):
+        if path.is_file() and path.name != "scaffold-release-check.yml":
+            copy_source(path, root / path.relative_to(FRAMEWORK))
     checks_path = root / ".github/workflows/checks.yml"
     write(
         checks_path,
@@ -339,8 +351,13 @@ def generate(args: argparse.Namespace) -> None:
         "`create.py --ref` 只导出固定提交；请选择包含所需能力且已核对的提交，不会导出工作区未提交变更。",
         "本项目由固定源码提交生成；实际验证记录由项目维护。",
     )
+    monitor = monitor.split("## 最小源码发行验收（D-20261029-01）", 1)[0].rstrip() + "\n"
     write(root / "docs/guides/05-工程检查与监控指南.md", monitor)
-    for guide in ("06-SDK使用参考.md", "07-系统安全验收清单.md"):
+    for guide in (
+        "06-SDK使用参考.md",
+        "07-系统安全验收清单.md",
+        "08-管理后台功能与身份接口清单.md",
+    ):
         text = (FRAMEWORK / "docs/guides" / guide).read_text(encoding="utf-8")
         text = text.replace("sample-java-service", args.java_service).replace(
             "sample-python-service", args.python_service
@@ -348,6 +365,10 @@ def generate(args: argparse.Namespace) -> None:
         text = text.replace("sample_service", args.python_package).replace(
             "com.example.sample", args.java_package
         )
+        text = text.replace(
+            "[公共HTTP合同](../design/07-Java与Python协作设计.md#http)", "本项目公共HTTP合同"
+        )
+        text = re.sub(r"\[([^\]]+)\]\(\.\./(?:design|plans)/[^)]+\)", r"\1", text)
         write(root / "docs/guides" / guide, text)
     # 项目只带使用说明和规范，不带框架设计/历史计划。
     for path in (root / "docs/standards").glob("*.md"):
@@ -358,7 +379,7 @@ def generate(args: argparse.Namespace) -> None:
 默认中文沟通；保留现有修改，先明确范围与验证，仅运行受影响测试，秘密不入库。
 写代码前必读[共同规范](docs/standards/01-项目编码规范.md)，按语言读取
 [Java 规范](docs/standards/02-Java编码规范.md)和[Python 规范](docs/standards/03-Python编码规范.md)。
-业务在 services，公共源码在 sdk；后续业务使用固定 submodule，先提交子仓再提交主仓 gitlink。
+业务在 services，公共源码在 sdk；local服务直接提交主仓；独立服务使用固定submodule，先提交子仓再提交主仓gitlink。
 Java 使用 JDK 21；在项目根对受影响模块运行 `./mvnw -pl <module> -am spotless:check` 和定向测试。
 Python 使用各模块自己的 uv 环境；从根执行 `uv run --frozen python scripts/check_python.py --paths <files>`，
 在受影响模块执行 `uv run --frozen mypy src` 和定向 pytest。不得把格式检查当作权限或事务验收。

@@ -1,8 +1,8 @@
 # Java / Python 微服务脚手架
 
-从一份可运行的混合语言项目创建自己的项目。公共 SDK、身份服务、网关及运维脚本直接随项目源码交付；初始两个业务归主仓，后续独立服务以固定 Git submodule 接入。
+从一份可运行的混合语言项目创建自己的项目。公共 SDK、身份服务、网关及运维脚本直接随项目源码交付；初始两个业务归主仓，后续服务可直接生成到主仓，也可用固定 Git submodule 接入。
 
-**当前进入全面测试与并发验收准备阶段；用户已恢复本项目隔离环境的 Docker 验收授权。** 执行范围和缺陷登记见[全面测试计划](docs/plans/2026-10-27-框架全面测试与并发验收-plan.md)；既有实现及定向证据见[工程能力补齐计划](docs/plans/2026-10-27-脚手架精简与工程能力补齐-plan.md)。授权恢复不代表已验收通过。
+当前分页、同仓新增服务与最小发行验收的实现和证据见[实施计划](docs/plans/2026-10-29-API约定与最小发行验收及同仓服务-plan.md)。既有环境与并发验证范围见[全面测试计划](docs/plans/2026-10-27-框架全面测试与并发验收-plan.md)；最小源码验收不替代生产部署或容量验收。
 
 ```text
 sdk/java/                   Java 公共接入代码
@@ -48,4 +48,4 @@ uv run --frozen python scripts/create.py --ref <固定提交> --output ../equipm
 - [脚本职责](scripts/README.md)与[部署操作](deploy/ansible/README.md)。
 - [文档导航](docs/01-文档导航.md)：权威设计与历史计划分开维护。
 
-后续新增服务由兼容版本脚手架的 scripts/create_service.py 创建独立源码，再由项目 scripts/add_service.py 接入固定提交。SDK 和基础服务升级以审阅后的源码补丁合并，不自动覆盖项目定制。
+后续同仓服务由固定兼容脚手架的 `scripts/create_service.py --source local --project-root <项目> --language <java|python> --name <名称> --package <包名> --port <端口>` 直接创建并登记；独立源码仍使用原 create_service/add_service 固定子仓路径。SDK 和基础服务升级以审阅后的源码补丁合并，不自动覆盖项目定制。

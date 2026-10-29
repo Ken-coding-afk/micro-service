@@ -45,7 +45,8 @@ class ItemControllerTest {
             .build();
     var item = new Item(UUID.randomUUID().toString(), "record");
     when(service.create(any(), eq("record"))).thenReturn(item);
-    when(service.list(any(), eq(1), eq(20))).thenReturn(new ItemPage(List.of(item), 1, 1, 20));
+    when(service.list(any(), eq(0), eq(25)))
+        .thenReturn(new ItemPage(List.of(item), 1, 0, 25, false));
     // 单独验证协议转换；安全拦截器与真实身份由混合项目回归覆盖。
     mvc.perform(
             post("/api/v1/java-items")
@@ -59,12 +60,25 @@ class ItemControllerTest {
         .andExpect(jsonPath("$.requestId").doesNotExist());
     mvc.perform(get("/api/v1/java-items"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.page_size").value(20))
-        .andExpect(jsonPath("$.data.pageSize").doesNotExist())
+        .andExpect(jsonPath("$.data.size").value(25))
+        .andExpect(jsonPath("$.data.page_size").doesNotExist())
+        .andExpect(jsonPath("$.data.page").value(0))
+        .andExpect(jsonPath("$.data.has_more").value(false))
         .andExpect(jsonPath("$.data.total").value(1));
     mvc.perform(
             post("/api/v1/java-items").contentType("application/json").content("{\"name\":\"\"}"))
         .andExpect(status().isBadRequest());
+    for (String query :
+        List.of(
+            "page=-1",
+            "page=10001",
+            "size=0",
+            "size=101",
+            "size=x",
+            "page_size=20",
+            "size=2&page_size=20")) {
+      mvc.perform(get("/api/v1/java-items?" + query)).andExpect(status().isBadRequest());
+    }
     when(service.peer())
         .thenThrow(
             new com.ken.platform.foundation.http.PlatformException(

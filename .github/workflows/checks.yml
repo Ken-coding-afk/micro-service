@@ -164,4 +164,4 @@ jobs:
         python-version: '3.12'
     - run: |-
         uv sync --frozen
-        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_test_execution.py tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py tests/config/test_monitoring.py tests/config/test_publish_state.py tests/deploy/test_migration_contract.py tests/project/test_python_check_scope.py tests/project/test_cli_failures.py
+        uv run --frozen pytest tests/project/test_workspace.py tests/project/test_scaffold_export.py tests/project/test_scaffold_verification.py tests/project/test_test_execution.py tests/project/test_release_source_order.py tests/deploy/test_dev_launch.py tests/deploy/test_runtime_package.py tests/config/test_monitoring.py tests/config/test_publish_state.py tests/deploy/test_migration_contract.py tests/project/test_python_check_scope.py tests/project/test_cli_failures.py

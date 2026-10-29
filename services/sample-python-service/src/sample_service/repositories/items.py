@@ -33,7 +33,7 @@ class ItemRepository:
             "own": own,
             "owner": owner,
             "limit": size,
-            "offset": (page - 1) * size,
+            "offset": page * size,
         }
         predicate = "tenant_id=:tenant AND (NOT :own OR owner_user_id=:owner)"
         count = (
@@ -59,7 +59,8 @@ class ItemRepository:
             items=[Item(id=str(row["id"]), name=row["name"]) for row in rows],
             total=count,
             page=page,
-            page_size=size,
+            size=size,
+            has_more=(page + 1) * size < count,
         )
 
 

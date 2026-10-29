@@ -8,6 +8,8 @@ import com.ken.platform.identity.service.account.AccountCreationService;
 import com.ken.platform.identity.service.account.PlatformAccountQueryService;
 import com.ken.platform.identity.service.account.PlatformLifecycleService;
 import com.ken.platform.identity.service.security.PasswordCredentials;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -160,8 +162,8 @@ public final class AccountManagementController {
 
   @GetMapping("/platform/admins")
   ResponseEntity<Map<String, Object>> administrators(
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam(defaultValue = "") String q) {
     return IdentityApiResponses.ok(queries.administrators(page, size, q));
   }
@@ -173,8 +175,8 @@ public final class AccountManagementController {
 
   @GetMapping("/platform/tenants")
   ResponseEntity<Map<String, Object>> tenants(
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam(defaultValue = "") String q) {
     return IdentityApiResponses.ok(queries.tenants(page, size, q));
   }

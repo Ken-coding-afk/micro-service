@@ -3,6 +3,7 @@
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Request
+from ken_platform_sdk.errors import PlatformError
 from ken_platform_sdk.security import CurrentPrincipal
 from ken_platform_sdk.security_web import require_permission
 
@@ -34,12 +35,15 @@ async def create(
 
 @router.get("")
 async def listing(
+    request: Request,
     principal: Annotated[CurrentPrincipal, Depends(read_permission)],
     service: Annotated[ItemService, Depends(item_service)],
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page: int = Query(0, ge=0, le=10000),
+    size: int = Query(25, ge=1, le=100),
 ) -> ApiResponse[ItemPage]:
-    return response(await service.list(principal, page, page_size))
+    if "page_size" in request.query_params:
+        raise PlatformError("VALIDATION_ERROR", "分页参数请使用 page 和 size", 400)
+    return response(await service.list(principal, page, size))
 
 
 @router.get("/peer")

@@ -52,7 +52,7 @@ class ItemServiceTest {
             principal.tenantId(),
             UUID.fromString(principal.subject()),
             "record");
-    var page = new ItemPage(List.of(created), 1, 2, 30);
+    var page = new ItemPage(List.of(created), 1, 2, 30, false);
     when(repository.list(principal.tenantId(), UUID.fromString(principal.subject()), true, 2, 30))
         .thenReturn(page);
     assertThat(service.list(principal, 2, 100)).isEqualTo(page);

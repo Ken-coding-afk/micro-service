@@ -33,7 +33,7 @@ public final class OwnAccountService {
   public List<PasswordLoginService.SessionSummary> sessions(int page, int size) {
     return execute(
         () -> {
-          if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE)
+          if (page < 0 || page > 10000 || size < 1 || size > 100)
             throw new PlatformException("INVALID_ARGUMENT", "分页范围不合法", 400);
           return logins.ownSessions(page * size, size);
         });
@@ -54,7 +54,7 @@ public final class OwnAccountService {
   public List<ApplicationConsentService.ConsentSummary> consents(int page, int size) {
     return execute(
         () -> {
-          if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE)
+          if (page < 0 || page > 10000 || size < 1 || size > 100)
             throw new PlatformException("INVALID_ARGUMENT", "分页范围不合法", 400);
           return consents.ownConsents(page * size, size);
         });

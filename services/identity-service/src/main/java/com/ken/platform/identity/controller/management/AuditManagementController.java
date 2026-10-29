@@ -2,6 +2,8 @@ package com.ken.platform.identity.controller.management;
 
 import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.audit.AuditQueryService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -24,8 +26,8 @@ public final class AuditManagementController {
   })
   ResponseEntity<Map<String, Object>> list(
       jakarta.servlet.http.HttpServletRequest request,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam(required = false) Instant from,
       @RequestParam(required = false) Instant to,
       @RequestParam(name = "actor_id", required = false) UUID actor,

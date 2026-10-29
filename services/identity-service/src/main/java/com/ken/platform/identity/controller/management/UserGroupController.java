@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.group.UserGroupService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -74,8 +76,8 @@ public final class UserGroupController {
   ResponseEntity<Map<String, Object>> list(
       @RequestParam(name = "parent_id", required = false) UUID parent,
       @RequestParam(defaultValue = "") String q,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "25") int size) {
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
     return IdentityApiResponses.ok(groups.list(parent, q, page, size));
   }
 
@@ -131,8 +133,8 @@ public final class UserGroupController {
       @PathVariable UUID id,
       @RequestParam(name = "include_descendants", defaultValue = "false") boolean descendants,
       @RequestParam(defaultValue = "") String q,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "25") int size) {
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
     return IdentityApiResponses.ok(groups.members(id, descendants, q, page, size));
   }
 
@@ -174,8 +176,8 @@ public final class UserGroupController {
   @GetMapping("/roles/{id}/groups")
   ResponseEntity<Map<String, Object>> roleGroups(
       @PathVariable UUID id,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "25") int size) {
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
     return IdentityApiResponses.ok(groups.roleGroups(id, page, size));
   }
 }

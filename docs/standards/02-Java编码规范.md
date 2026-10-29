@@ -13,7 +13,7 @@
 
 - 类/record 用 PascalCase，变量/方法 camelCase，包名小写；常量 UPPER_SNAKE_CASE。不使用无法说明职责的 Manager/Helper/Util 大杂烩。
 - 必须构造器注入依赖，字段尽量 final。一个实现默认具体类，多个实现或稳定替换边界才使用接口，不生成 ServiceImpl 壳。
-- 请求用 Bean Validation 和明确允许字段；结果使用 record/明确类型，避免 Map<String,Object> 贯穿用例。JSON 保持既有命名，必要时显式映射，不因 Java camelCase 改掉 page_size/request_id。
+- 请求用 Bean Validation 和明确允许字段；结果使用 record/明确类型，避免 Map<String,Object> 贯穿用例。JSON 保持既有命名，必要时显式映射，不因 Java camelCase 改掉 has_more/request_id。
 - 简单只读 Item/Page 结果可在用例中定义嵌套 record；API 通过 DTO 显式映射，DAL 不依赖 controller。不是每个类型都必须拆独立文件。
 - 输入限制在入口验证；业务上限、状态和授权在用例处理；数据库约束兜底。不得用反射复制 tenant/owner/权限字段。
 

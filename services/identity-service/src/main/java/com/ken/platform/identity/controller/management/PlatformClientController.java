@@ -7,6 +7,8 @@ import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.dal.dataobject.oauth.ClientPolicyDO;
 import com.ken.platform.identity.service.oauth.ClientManagementService;
 import com.ken.platform.identity.service.oauth.ClientPolicyRules;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -78,8 +80,8 @@ public final class PlatformClientController {
 
   @GetMapping
   ResponseEntity<Map<String, Object>> list(
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam(defaultValue = "") String q) {
     var result = clients.list(page, size, q);
     return IdentityApiResponses.ok(

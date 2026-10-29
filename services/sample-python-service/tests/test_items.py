@@ -73,13 +73,14 @@ async def test_use_case_owns_identity_page_limit_and_transaction_failure():
         session, item, user.tenant_id, uuid.UUID(user.subject)
     )
     assert events == ["enter", "commit"]
-    repository.list.return_value = ItemPage(items=[item], total=1, page=2, page_size=30)
+    repository.list.return_value = ItemPage(items=[item], total=1, page=2, size=30, has_more=False)
     result = await service.list(user, 2, 100)
     assert result.model_dump() == {
         "items": [{"id": item.id, "name": "record"}],
         "total": 1,
         "page": 2,
-        "page_size": 30,
+        "size": 30,
+        "has_more": False,
     }
     repository.list.assert_awaited_once_with(
         session, user.tenant_id, uuid.UUID(user.subject), True, 2, 30
@@ -112,16 +113,23 @@ async def test_no_tenant_cannot_enter_database_transaction():
 
 def test_http_fields_validation_and_pagination_contract():
     # 此处只验证路由合同；真实认证/隔离由独立项目回归覆盖。
+    from ken_platform_sdk.web import PlatformMiddleware, install_error_handlers
+
     app = FastAPI()
+    app.add_middleware(PlatformMiddleware)
+    install_error_handlers(app)
     app.include_router(router)
     service = AsyncMock(spec=ItemService)
     item = Item(id=str(uuid.uuid4()), name="record")
     service.create.return_value = item
-    service.list.return_value = ItemPage(items=[item], total=1, page=1, page_size=20)
+    service.list.return_value = ItemPage(items=[item], total=1, page=0, size=25, has_more=False)
     app.dependency_overrides[item_service] = lambda: service
     app.dependency_overrides[read_permission] = principal
     app.dependency_overrides[write_permission] = principal
-    with request_context(request_id="test-request"), TestClient(app) as client:
+    with (
+        request_context(request_id="test-request"),
+        TestClient(app, headers={"X-Request-Id": "test-request"}) as client,
+    ):
         result = client.post("/api/v1/python-items", json={"name": "record"})
         assert result.status_code == 201
         assert result.json() == {
@@ -131,11 +139,22 @@ def test_http_fields_validation_and_pagination_contract():
             "request_id": "test-request",
         }
         for body in [{"name": ""}, {"name": "x", "tenant_id": str(uuid.uuid4())}]:
-            assert client.post("/api/v1/python-items", json=body).status_code == 422
+            assert client.post("/api/v1/python-items", json=body).status_code == 400
         page = client.get("/api/v1/python-items").json()
         assert page["data"] == service.list.return_value.model_dump()
-        assert client.get("/api/v1/python-items?page=0").status_code == 422
-        assert client.get("/api/v1/python-items?page_size=101").status_code == 422
+        assert service.list.await_args.args[1:] == (0, 25)
+        for query in [
+            "page=-1",
+            "page=10001",
+            "size=0",
+            "size=101",
+            "size=x",
+            "page_size=20",
+            "size=2&page_size=20",
+        ]:
+            rejected = client.get("/api/v1/python-items?" + query)
+            assert rejected.status_code == 400
+            assert rejected.json()["code"] == "VALIDATION_ERROR"
 
 
 @pytest.mark.asyncio
@@ -152,7 +171,7 @@ async def test_peer_preserves_json_and_does_not_hide_downstream_failure():
     body = {
         "code": "OK",
         "message": "success",
-        "data": {"items": [], "total": 0, "page": 1, "page_size": 20},
+        "data": {"items": [], "total": 0, "page": 0, "size": 25, "has_more": False},
         "request_id": "remote",
     }
     requests = []

@@ -19,7 +19,8 @@ class ItemPage(BaseModel):
     items: list[Item]
     total: int
     page: int
-    page_size: int
+    size: int
+    has_more: bool
 
 
 class ApiResponse[T](BaseModel):

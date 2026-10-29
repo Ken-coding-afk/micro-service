@@ -5,6 +5,8 @@ import com.ken.platform.foundation.security.DataScope;
 import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.permission.ManualPermissionService;
 import com.ken.platform.identity.service.permission.PermissionCatalogService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -59,8 +61,8 @@ public final class PermissionManagementController {
       @RequestParam(required = false) String source,
       @RequestParam(required = false) String status,
       @RequestParam(defaultValue = "") String q,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "25") int size) {
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
     return IdentityApiResponses.ok(permissions.list(owner, group, source, status, q, page, size));
   }
 
@@ -73,8 +75,8 @@ public final class PermissionManagementController {
   ResponseEntity<Map<String, Object>> roles(
       @PathVariable String code,
       @RequestParam(name = "tenant_id", required = false) UUID tenant,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "25") int size) {
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
     return IdentityApiResponses.ok(permissions.references(code, tenant, page, size));
   }
 

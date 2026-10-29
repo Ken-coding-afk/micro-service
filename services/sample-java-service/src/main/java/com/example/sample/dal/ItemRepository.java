@@ -37,7 +37,12 @@ public class ItemRepository {
             own,
             owner,
             size,
-            ((long) page - 1) * size);
-    return new ItemPage(items, java.util.Objects.requireNonNull(count), page, size);
+            (long) page * size);
+    return new ItemPage(
+        items,
+        java.util.Objects.requireNonNull(count),
+        page,
+        size,
+        ((long) page + 1) * size < count);
   }
 }

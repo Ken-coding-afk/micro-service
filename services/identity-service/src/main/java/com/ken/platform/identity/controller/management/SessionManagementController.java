@@ -3,6 +3,8 @@ package com.ken.platform.identity.controller.management;
 import com.ken.platform.foundation.http.PlatformException;
 import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.login.SessionManagementService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -24,8 +26,8 @@ public final class SessionManagementController {
   @GetMapping("/sessions")
   ResponseEntity<Map<String, Object>> list(
       @RequestParam(name = "user_id", required = false) UUID user,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam Map<String, String> query) {
     fields(query, Set.of("user_id", "page", "size"));
     return IdentityApiResponses.ok(sessions.list(user, page, size));

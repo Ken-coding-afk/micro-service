@@ -130,3 +130,6 @@ with task_context(tenant_id=tenant_id, service="sample-python-service", timeout_
 将 SDK、自动装配、样例接入、配置和新测试成组合并到项目分支。新增 API 属增量；通用参数错误格式发生变化，前端需使用 code/status，勿依赖 FastAPI 默认 detail 或 Spring 默认错误页。已有明确业务/身份管理 handler 保留语义；自行安装的 handler 由项目对照同一合同验证。
 
 使用当前项目的固定依赖和 CI 定向集合；`tests/fixtures/api-errors-v1.json` 是两语言共享的通用错误样本。纯测试/构建不代表数据库、真实登录、消息或网关部署已验收。
+
+
+分页以[公共HTTP合同](../design/07-Java与Python协作设计.md#http)为准。D-20261029-01样例将page从1基改为0基、page_size改为size（默认25），响应增加has_more；total作为业务扩展保留。旧调用方与样例服务/PeerClient成组升级，SDK不猜测旧页码。

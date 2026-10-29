@@ -2,6 +2,8 @@ package com.ken.platform.identity.controller.management;
 
 import com.ken.platform.identity.controller.support.IdentityApiResponses;
 import com.ken.platform.identity.service.authorization.TenantManagementQueryService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -21,8 +23,8 @@ public final class TenantManagementQueryController {
 
   @GetMapping("/users")
   ResponseEntity<Map<String, Object>> users(
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam(defaultValue = "") String q,
       @RequestParam(defaultValue = "") String status,
       @RequestParam(name = "group_id", required = false) UUID group,
@@ -42,8 +44,8 @@ public final class TenantManagementQueryController {
 
   @GetMapping("/roles")
   ResponseEntity<Map<String, Object>> roles(
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
       @RequestParam(defaultValue = "") String q,
       @RequestParam(name = "assignable_to", required = false) UUID assignableTo) {
     return IdentityApiResponses.ok(queries.roles(page, size, assignableTo, q));
@@ -57,8 +59,8 @@ public final class TenantManagementQueryController {
   @GetMapping("/roles/{id}/members")
   ResponseEntity<Map<String, Object>> roleMembers(
       @PathVariable UUID id,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
+      @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
     return IdentityApiResponses.ok(queries.roleMembers(id, page, size));
   }
 

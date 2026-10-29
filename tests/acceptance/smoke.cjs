@@ -61,31 +61,81 @@ async function request(context, service, method = 'GET', suffix = '') {
     {method, headers, ...(method === 'POST' ? {data: {name: marker}} : {})});
 }
 
+async function listAll(context, service) {
+  const items = [];
+  for (let page = 0; page <= 10000; page++) {
+    const result = await request(context, service, 'GET', `?page=${page}&size=2`);
+    assert.equal(result.status(), 200);
+    const body = await result.json();
+    assert.equal(body.code, 'OK');
+    assert.equal(typeof body.request_id, 'string');
+    assert.equal(body.data.page, page);
+    assert.equal(body.data.size, 2);
+    assert.equal(typeof body.data.has_more, 'boolean');
+    assert.ok(body.data.items.length <= 2);
+    assert.equal(body.data.has_more, (page + 1) * 2 < body.data.total);
+    items.push(...body.data.items);
+    if (!body.data.has_more) {
+      assert.equal(items.length, body.data.total);
+      assert.equal(new Set(items.map(item => item.id)).size, items.length);
+      return items;
+    }
+  }
+  throw new Error('分页未终止');
+}
+
 (async () => {
   const browser = await chromium.launch({headless: true});
   try {
-    const alpha = await login(browser, 'alpha', 'writer');
+    const anonymous = await browser.newContext();
     for (const service of services) {
-      const created = await request(alpha.context, service, 'POST');
-      assert.equal(created.status(), 201, service + ' create: ' + await created.text());
-      const listed = await request(alpha.context, service);
-      assert.equal(listed.status(), 200);
-      assert.ok((await listed.text()).includes(marker));
+      const rejected = await request(anonymous, service);
+      assert.equal(rejected.status(), 401);
+    }
+    await anonymous.close();
+    const alpha = await login(browser, 'alpha', 'writer');
+    const createdIds = new Map();
+    const visibleItems = new Map();
+    for (const service of services) {
+      const ids = [];
+      for (let index = 0; index < 5; index++) {
+        const created = await request(alpha.context, service, 'POST');
+        assert.equal(created.status(), 201, service + ' create');
+        const item = (await created.json()).data;
+        assert.equal(item.name, marker);
+        ids.push(item.id);
+      }
+      createdIds.set(service, ids);
+      const listed = await listAll(alpha.context, service);
+      visibleItems.set(service, listed);
+      assert.deepEqual(listed.filter(item => item.name === marker).map(item => item.id).sort(), [...ids].sort());
+      const empty = await request(alpha.context, service, 'GET', '?page=10000&size=100');
+      assert.equal(empty.status(), 200);
+      const emptyPage = (await empty.json()).data;
+      assert.deepEqual(emptyPage.items, []);
+      assert.equal(emptyPage.has_more, false);
+      for (const query of ['page=-1', 'page=10001', 'size=0', 'size=101', 'page_size=20']) {
+        assert.equal((await request(alpha.context, service, 'GET', '?' + query)).status(), 400);
+      }
       await alpha.page.locator('#service').selectOption(service);
       await alpha.page.locator('#list').click();
       await alpha.page.waitForFunction(() => document.querySelector('#result').textContent.startsWith('HTTP 200'));
     }
     for (const service of services) {
       const peer = await request(alpha.context, service, 'GET', '/peer');
-      assert.equal(peer.status(), 200, service + ' peer: ' + await peer.text());
-      assert.ok((await peer.text()).includes(marker));
+      assert.equal(peer.status(), 200, service + ' peer');
+      const data = (await peer.json()).data;
+      assert.equal(data.page, 0);
+      assert.equal(data.size, 25);
+      assert.equal(typeof data.has_more, 'boolean');
+      const other = services.find(name => name !== service);
+      assert.deepEqual(data.items, visibleItems.get(other).slice(0, data.size));
     }
     await alpha.context.close();
     const beta = await login(browser, 'beta', 'writer');
     for (const service of services) {
-      const listed = await request(beta.context, service);
-      assert.equal(listed.status(), 200);
-      assert.ok(!(await listed.text()).includes(marker), 'cross-tenant record leak');
+      const listed = await listAll(beta.context, service);
+      assert.ok(!listed.some(item => createdIds.get(service).includes(item.id)), 'cross-tenant record leak');
     }
     await beta.context.close();
     const denied = await login(browser, 'alpha', 'denied');

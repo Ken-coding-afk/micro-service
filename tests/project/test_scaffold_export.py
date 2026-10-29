@@ -68,6 +68,7 @@ def commit(root):
 
 
 def test_generated_project_has_one_source_and_independent_entries(project):
+    assert not (project / ".github/workflows/scaffold-release-check.yml").exists()
     assert not any(
         (project / path).exists()
         for path in (
@@ -176,6 +177,7 @@ def test_create_exports_explicit_commit_not_dirty_generator(project, tmp_path, m
         "docs/guides/05-工程检查与监控指南.md",
         "docs/guides/06-SDK使用参考.md",
         "docs/guides/07-系统安全验收清单.md",
+        "docs/guides/08-管理后台功能与身份接口清单.md",
         ".github",
         "tests/fixtures",
         "tests/acceptance/smoke.cjs",
@@ -513,3 +515,167 @@ def test_generated_ci_includes_security_and_monitoring_regressions(project):
             for entry in workflow["jobs"]["python"]["strategy"]["matrix"]["include"]
         }
         assert "sdk/python/tests/test_access_logging.py" in python["sdk/python"]
+
+
+@pytest.mark.parametrize("language,package", [("java", "com.acme.report"), ("python", "reports")])
+def test_local_service_registers_without_git_side_effects(project, language, package):
+    before_index = git(project, "diff", "--cached")
+    original_lock = (project / "sdk/python/uv.lock").read_bytes()
+    args = argparse.Namespace(
+        source="local",
+        project_root=project,
+        language=language,
+        name="report-service",
+        package=package,
+        port=49000,
+        output=None,
+    )
+    result = create_service(args)
+    assert result == project / "services/report-service"
+    assert services(project)["report-service"]["source"] == "local"
+    assert git(project, "diff", "--cached") == before_index
+    assert not (project / ".gitmodules").exists()
+    assert (project / "sdk/python/uv.lock").read_bytes() == original_lock
+    workflow = yaml.safe_load(
+        (project / ".github/workflows/checks.yml").read_text(encoding="utf-8")
+    )
+    entries = workflow["jobs"][language]["strategy"]["matrix"]["include"]
+    assert sum(entry["module"] == "services/report-service" for entry in entries) == 1
+    assert "report-service" in (project / ".vscode/launch.json").read_text(encoding="utf-8")
+    assert "report-service" in (project / "deploy/generated.services.yaml").read_text(
+        encoding="utf-8"
+    )
+    if language == "python":
+        subprocess.run(["uv", "lock", "--check", "--project", str(result)], check=True, cwd=project)
+    else:
+        assert "<module>services/report-service</module>" in (project / "pom.xml").read_text(
+            encoding="utf-8"
+        )
+    before = (project / "config/services.yaml").read_bytes()
+    with pytest.raises(ValueError, match="已存在"):
+        create_service(args)
+    assert (project / "config/services.yaml").read_bytes() == before
+
+
+def test_local_service_preflight_preserves_host_on_conflict(project):
+    before = {p: p.read_bytes() for p in (project / "config").rglob("*") if p.is_file()}
+    args = argparse.Namespace(
+        source="local",
+        project_root=project,
+        language="java",
+        name="report-service",
+        package="com.acme.report",
+        port=48082,
+        output=None,
+    )
+    with pytest.raises(ValueError, match="端口"):
+        create_service(args)
+    assert not (project / "services/report-service").exists()
+    assert all(p.read_bytes() == value for p, value in before.items())
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[2] / "scripts/create_service.py"),
+            "--source",
+            "local",
+            "--language",
+            "java",
+            "--name",
+            "report-service",
+            "--package",
+            "com.acme.report",
+            "--port",
+            "48082",
+            "--project-root",
+            str(project),
+        ],
+        capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+    assert result.returncode == 2
+    assert "端口" in result.stderr.decode("utf-8")
+
+
+def test_local_service_rejects_custom_matrix_before_writing(project):
+    path = project / ".github/workflows/checks.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    workflow["jobs"]["java"]["strategy"]["matrix"] = "${{ custom }}"
+    write(path, yaml.safe_dump(workflow))
+    before = path.read_bytes()
+    config = (project / "config/services.yaml").read_bytes()
+    with pytest.raises(ValueError, match="CI矩阵"):
+        create_service(
+            argparse.Namespace(
+                source="local",
+                project_root=project,
+                language="java",
+                name="report-service",
+                package="com.acme.report",
+                port=49000,
+                output=None,
+            )
+        )
+    assert path.read_bytes() == before
+    assert (project / "config/services.yaml").read_bytes() == config
+    assert not (project / "services/report-service").exists()
+
+
+def test_local_service_preserves_concurrent_host_edit(project, monkeypatch):
+    import create_service as tool
+
+    original_register = tool.register
+    config = project / "config/services.yaml"
+    concurrent = config.read_bytes() + b"\n# concurrent edit\n"
+
+    def register_and_edit(*args):
+        original_register(*args)
+        config.write_bytes(concurrent)
+
+    monkeypatch.setattr(tool, "register", register_and_edit)
+    with pytest.raises(ValueError, match="预检期间宿主文件变化"):
+        create_service(
+            argparse.Namespace(
+                source="local",
+                project_root=project,
+                language="java",
+                name="report-service",
+                package="com.acme.report",
+                port=49000,
+                output=None,
+            )
+        )
+    assert config.read_bytes() == concurrent
+    assert not (project / "services/report-service").exists()
+
+
+def test_local_service_reports_partial_write_without_removing_files(project, monkeypatch, capsys):
+    import create_service as tool
+
+    original_copy = tool.copy_source
+    config = project / "config/services.yaml"
+    before = config.read_bytes()
+
+    def fail_host_config(source, destination):
+        if destination == config:
+            raise PermissionError("injected write failure")
+        original_copy(source, destination)
+
+    monkeypatch.setattr(tool, "copy_source", fail_host_config)
+    with pytest.raises(PermissionError):
+        create_service(
+            argparse.Namespace(
+                source="local",
+                project_root=project,
+                language="java",
+                name="report-service",
+                package="com.acme.report",
+                port=49000,
+                output=None,
+            )
+        )
+    assert config.read_bytes() == before
+    assert (project / "services/report-service/pom.xml").is_file()
+    error = capsys.readouterr().err
+    assert "现场保留" in error and "已写路径" in error
+    assert str(config) in error
+    assert repr(str(project / "services/report-service")) in error

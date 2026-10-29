@@ -183,8 +183,7 @@ class OwnAccountServiceTest {
   @Test
   void boundedPaginationNeverOverflowsOrCallsCoreWithUnboundedLimit() {
     authenticate();
-    assertThatThrownBy(() -> service.sessions(Integer.MAX_VALUE, 100))
-        .isInstanceOf(PlatformException.class);
+    assertThatThrownBy(() -> service.sessions(10001, 100)).isInstanceOf(PlatformException.class);
     assertThatThrownBy(() -> service.consents(-1, 1)).isInstanceOf(PlatformException.class);
     assertThatThrownBy(() -> service.sessions(0, 101)).isInstanceOf(PlatformException.class);
     verifyNoInteractions(logins, consents);
