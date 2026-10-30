@@ -322,9 +322,11 @@ def generate(args: argparse.Namespace) -> None:
     write(
         root / "tests/README.md",
         "# 项目测试\n\nSDK 和服务测试随各自源码维护。fixtures 为共享协议数据。\n"
-        "acceptance/smoke.cjs 仅用于启用演示数据的 local 环境；会创建演示记录并处理初始改密。\n"
+        "acceptance/smoke.cjs 完整验收仅用于启用演示数据的 local 环境；会创建演示记录并处理初始改密。\n"
         "先安装 identity-service/admin 的锁定开发依赖和 Playwright Chromium，启动两个业务服务后执行：\n"
         f"node tests/acceptance/smoke.cjs . {args.java_service} {args.python_service}\n"
+        "Java 服务名在前；追加 --swagger-only 只验证 Java Swagger 页面、资源与浏览器渲染，"
+        "无需演示账号，仅需启动 Java 服务。完整验收也包含此检查。\n"
         "替换样例 API 后同步修改本项目的 smoke；不对 test/prod 执行。\n",
     )
     # 相同流水线交付新项目，仅移除框架维护专用 job。

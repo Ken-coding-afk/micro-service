@@ -14,9 +14,37 @@ assert.match(values.PUBLIC_ORIGIN, /^http:\/\/localhost:\d+$/);
 const origin = values.PUBLIC_ORIGIN;
 const saved = path.join(root, '.local/workspace-smoke-passwords.json');
 const passwords = fs.existsSync(saved) ? JSON.parse(fs.readFileSync(saved, 'utf8')) : {};
-const services = process.argv.slice(3);
+const swaggerOnly = process.argv.includes('--swagger-only');
+const services = process.argv.slice(3).filter(arg => arg !== '--swagger-only');
 assert.equal(services.length, 2);
 const marker = 'workspace-' + crypto.randomUUID();
+
+async function verifySwagger(browser) {
+  const binding = fs.readFileSync(path.join(root, '.local/runtime', services[0] + '-host.env'), 'utf8');
+  const port = binding.match(/^SERVICE_BIND_PORT=(\d+)\r?$/m);
+  assert.ok(port, 'Java service host port missing');
+  const serviceOrigin = 'http://127.0.0.1:' + port[1];
+  const context = await browser.newContext();
+  try {
+    for (const resource of ['index.html', 'swagger-ui.css', 'swagger-ui-bundle.js',
+      'swagger-ui-standalone-preset.js', 'swagger-initializer.js', 'oauth2-redirect.html']) {
+      const response = await context.request.get(serviceOrigin + '/swagger-ui/' + resource);
+      assert.equal(response.status(), 200, 'Swagger resource: ' + resource);
+    }
+    const config = await context.request.get(serviceOrigin + '/v3/api-docs/swagger-config');
+    assert.equal(config.status(), 200);
+    const document = await context.request.get(serviceOrigin + '/v3/api-docs');
+    assert.equal(document.status(), 200);
+    assert.equal((await document.json()).info.title, services[0]);
+    const page = await context.newPage();
+    await page.goto(serviceOrigin + '/swagger-ui/index.html');
+    await page.locator('.swagger-ui .info .title').waitFor();
+    assert.ok((await page.locator('.swagger-ui .info .title').innerText()).includes(services[0]));
+    console.log('PASS: Java Swagger page/resources/OpenAPI/browser rendering');
+  } finally {
+    await context.close();
+  }
+}
 
 async function login(browser, tenant, user) {
   const context = await browser.newContext();
@@ -87,6 +115,8 @@ async function listAll(context, service) {
 (async () => {
   const browser = await chromium.launch({headless: true});
   try {
+    await verifySwagger(browser);
+    if (swaggerOnly) return;
     const anonymous = await browser.newContext();
     for (const service of services) {
       const rejected = await request(anonymous, service);

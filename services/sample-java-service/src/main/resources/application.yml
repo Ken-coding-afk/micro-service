@@ -5,3 +5,7 @@ spring:
     web-application-type: servlet
 server:
   port: 8082
+springdoc:
+  swagger-ui:
+    # 与父 POM 的固定资源版本一致，避免使用 springdoc 内置的默认资源路径。
+    version: '@swagger-ui.version@'

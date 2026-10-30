@@ -10,4 +10,9 @@
 
 `acceptance/smoke.cjs` 与两个共享协议 JSON 随新项目交付；其余维护者测试不整套复制。新项目仍携带各 SDK 和服务自己的测试。
 
+Swagger 启动回归：安装身份管理页的锁定开发依赖与 Playwright Chromium，启动 local Java 服务后执行
+`node tests/acceptance/smoke.cjs . sample-java-service sample-python-service --swagger-only`。
+服务参数按 Java、Python 顺序；检查真实 HTTP 页面、静态资源、OpenAPI 和浏览器渲染，无需演示账号。
+完整 smoke 验收自动包含此检查；生成项目使用自己的服务名称。
+
 不要运行全仓测试来代替选择受影响用例。根 pytest 默认禁止 Docker 子进程；真实组件夹具必须显式启用 `--run-integration`，启用后环境故障应失败。Docker 验收当前暂停，不运行该开关。当前范围和实际证据见[合并实施计划](../docs/plans/2026-10-27-脚手架精简与工程能力补齐-plan.md)；历史验收不追改。
