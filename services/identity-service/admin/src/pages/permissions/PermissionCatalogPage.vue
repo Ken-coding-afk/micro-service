@@ -6,7 +6,11 @@ import { can } from '../../app/permissions'
 import { IdentityError, read, write } from '../../api/identity'
 import type { Page } from '../../api/platform'
 import type { Permission } from '../../api/tenant'
-type Entry = Permission & { source: 'BUILTIN' | 'PUBLISHED' | 'MANUAL'; can_edit: boolean }
+type Entry = Permission & {
+  source: 'BUILTIN' | 'PUBLISHED' | 'MANUAL'
+  can_edit: boolean
+  principal_type: 'TENANT' | 'PLATFORM'
+}
 type Details = {
   permission: Entry
   catalog_version: number
@@ -21,6 +25,14 @@ type RoleReference = {
   status: string
   data_scope: string
 }
+type ResourceGroup = { resourceCode: string; resourceName: string; items: Entry[] }
+type ServiceGroup = {
+  service: string
+  count: number
+  sources: string
+  resources: ResourceGroup[]
+}
+type Section = { services: ServiceGroup[]; count: number }
 const context = inject(accountContext),
   owner = computed(() => context?.())
 const readable = computed(() => !!owner.value && can(owner.value.me, 'platform:permission:read'))
@@ -33,6 +45,7 @@ const query = ref(''),
   service = ref(''),
   source = ref(''),
   status = ref(''),
+  principal = ref(''),
   version = ref(0),
   page = ref(0),
   more = ref(false)
@@ -77,6 +90,19 @@ const editable = computed(
 let generation = 0,
   sequence = 0
 const requestId = ref('')
+const sourceNames = { BUILTIN: '系统内置', PUBLISHED: '服务发布', MANUAL: '手工维护' } as const
+const statusNames = { ACTIVE: '启用', DISABLED: '停用', DEPRECATED: '废弃' } as const
+const actionNames: Record<string, string> = {
+  read: '查看',
+  manage: '管理',
+  assign: '分配',
+  create: '新增',
+  update: '更新',
+  delete: '删除',
+}
+const actionName = (code: string) => actionNames[code] ?? code
+/* 内置租户管理员角色在安装时绑定的资源（BuiltinPermissionCatalog + tenant-admin 初始化），仅用于展示标注。 */
+const builtinBoundResources = new Set(['user', 'role', 'group', 'session', 'audit', 'permission'])
 function report(problem: unknown) {
   error.value = problem instanceof Error ? problem.message : '操作失败'
   owner.value?.failed(problem)
@@ -111,6 +137,47 @@ async function load(next = 0) {
     if (epoch === generation && turn === sequence) loading.value = false
   }
 }
+/* 目录按主体类型分区、区内按服务与资源分组；分组仅组织当前分页数据，筛选和分页仍由服务端负责。 */
+const visibleRows = computed(() =>
+  principal.value
+    ? rows.value.filter((item) => item.principal_type === principal.value)
+    : rows.value,
+)
+function buildSection(kind: 'TENANT' | 'PLATFORM'): Section {
+  const byService = new Map<string, Entry[]>()
+  for (const item of visibleRows.value)
+    if (item.principal_type === kind) {
+      const bucket = byService.get(item.owner_service)
+      if (bucket) bucket.push(item)
+      else byService.set(item.owner_service, [item])
+    }
+  const serviceGroups: ServiceGroup[] = [...byService.entries()]
+    .map(([name, items]) => {
+      const byResource = new Map<string, ResourceGroup>()
+      for (const item of items) {
+        const bucket = byResource.get(item.resource_code)
+        if (bucket) bucket.items.push(item)
+        else
+          byResource.set(item.resource_code, {
+            resourceCode: item.resource_code,
+            resourceName: item.resource_name,
+            items: [item],
+          })
+      }
+      const resources = [...byResource.values()].sort(
+        (left, right) => (left.items[0]?.sort ?? 0) - (right.items[0]?.sort ?? 0),
+      )
+      const sources = [...new Set(items.map((item) => sourceNames[item.source]))].join(' + ')
+      return { service: name, count: items.length, sources, resources }
+    })
+    .sort((left, right) => left.service.localeCompare(right.service))
+  return {
+    services: serviceGroups,
+    count: serviceGroups.reduce((sum, item) => sum + item.count, 0),
+  }
+}
+const tenantSection = computed(() => buildSection('TENANT'))
+const platformSection = computed(() => buildSection('PLATFORM'))
 async function references(next = 0) {
   if (!details.value) return
   const result = await read<Page<RoleReference>>(
@@ -294,46 +361,112 @@ onMounted(async () => {
           <option value="ACTIVE">启用</option>
           <option value="DISABLED">停用</option>
           <option value="DEPRECATED">废弃</option></select
-        ><button class="secondary-button" :disabled="loading">查询</button>
+        ><select v-model="principal" aria-label="主体类型">
+          <option value="">全部类型</option>
+          <option value="TENANT">租户可分配</option>
+          <option value="PLATFORM">平台保留</option>
+        </select>
+        <button class="secondary-button" :disabled="loading">查询</button>
       </form>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>权限</th>
-              <th>所属服务</th>
-              <th>分组 / 资源</th>
-              <th>来源</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in rows" :key="item.code">
-              <td>
-                <strong>{{ item.name }}</strong
-                ><small class="muted">{{ item.code }}</small>
-              </td>
-              <td>{{ item.owner_service }}</td>
-              <td>{{ item.group_name }} / {{ item.resource_name }}</td>
-              <td>
-                {{
-                  { BUILTIN: '系统内置', PUBLISHED: '服务发布', MANUAL: '手工维护' }[item.source]
-                }}
-              </td>
-              <td>{{ { ACTIVE: '启用', DISABLED: '停用', DEPRECATED: '废弃' }[item.status] }}</td>
-              <td>
-                <button class="text-button" :disabled="loading || pending" @click="open(item)">
-                  {{ item.can_edit && manageable ? '编辑 / 引用' : '查看' }}
-                </button>
-              </td>
-            </tr>
-            <tr v-if="!loading && !rows.length">
-              <td colspan="6" class="empty">没有符合条件的权限。</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <div v-if="loading" class="loading" role="status">正在读取权限目录…</div>
+      <template v-else>
+        <details class="permission-section" open>
+          <summary>
+            <span class="permission-section-title">租户可分配权限</span>
+            <span class="permission-section-count">本页 {{ tenantSection.count }} 项</span>
+          </summary>
+          <div class="permission-section-body">
+            <div v-if="!tenantSection.count" class="empty">当前筛选下没有租户可分配权限。</div>
+            <div
+              v-for="group in tenantSection.services"
+              :key="group.service"
+              class="permission-service-group"
+            >
+              <div class="permission-service-head">
+                <strong>{{ group.service }}</strong>
+                <small>{{ group.sources }} · {{ group.count }} 项</small>
+              </div>
+              <div
+                v-for="resource in group.resources"
+                :key="resource.resourceCode"
+                class="permission-resource-group"
+              >
+                <span class="resource-name">{{ resource.resourceName }}</span>
+                <code class="resource-code">{{ resource.resourceCode }}</code>
+                <span
+                  v-if="
+                    group.service === 'identity-service' &&
+                    builtinBoundResources.has(resource.resourceCode)
+                  "
+                  class="builtin-bound-badge"
+                  title="内置租户管理员角色已绑定这些权限"
+                  >已绑定</span
+                >
+                <span class="resource-actions">
+                  <button
+                    v-for="item in resource.items"
+                    :key="item.code"
+                    type="button"
+                    class="action-chip"
+                    :title="item.code"
+                    :disabled="loading || pending"
+                    @click="open(item)"
+                  >
+                    {{ actionName(item.action_code)
+                    }}<template v-if="item.status !== 'ACTIVE'"
+                      >（{{ statusNames[item.status] }}）</template
+                    >
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="permission-section">
+          <summary>
+            <span class="permission-section-title">平台管理权限</span>
+            <span class="permission-section-count">本页 {{ platformSection.count }} 项</span>
+            <span class="permission-section-note">系统保留，不参与租户角色分配</span>
+          </summary>
+          <div class="permission-section-body">
+            <div v-if="!platformSection.count" class="empty">当前筛选下没有平台管理权限。</div>
+            <div
+              v-for="group in platformSection.services"
+              :key="group.service"
+              class="permission-service-group"
+            >
+              <div class="permission-service-head">
+                <strong>{{ group.service }}</strong>
+                <small>{{ group.sources }} · {{ group.count }} 项</small>
+              </div>
+              <div
+                v-for="resource in group.resources"
+                :key="resource.resourceCode"
+                class="permission-resource-group"
+              >
+                <span class="resource-name">{{ resource.resourceName }}</span>
+                <code class="resource-code">{{ resource.resourceCode }}</code>
+                <span class="resource-actions">
+                  <button
+                    v-for="item in resource.items"
+                    :key="item.code"
+                    type="button"
+                    class="action-chip"
+                    :title="item.code"
+                    :disabled="loading || pending"
+                    @click="open(item)"
+                  >
+                    {{ actionName(item.action_code)
+                    }}<template v-if="item.status !== 'ACTIVE'"
+                      >（{{ statusNames[item.status] }}）</template
+                    >
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </details>
+      </template>
       <div class="pagination">
         <span>第 {{ page + 1 }} 页</span
         ><button class="text-button" :disabled="loading || !page" @click="load(page - 1)">

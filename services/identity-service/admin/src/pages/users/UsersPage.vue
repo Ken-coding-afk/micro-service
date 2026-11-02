@@ -347,21 +347,21 @@ onMounted(() => load(0))
           <option value="">全部状态</option>
           <option value="ACTIVE">启用</option>
           <option value="DISABLED">停用</option>
-          <option value="PENDING_ACTIVATION">待激活</option></select
-        ><button class="secondary-button" :disabled="loading || pending">查询</button>
+          <option value="PENDING_ACTIVATION">待激活</option>
+        </select>
+        <div class="filter-group-picker">
+          <ReferencePicker
+            v-model="groupFilter"
+            kind="groups"
+            single
+            :disabled="loading || pending"
+          />
+          <label class="check-label"
+            ><input v-model="includeDescendants" type="checkbox" /> 包含下级</label
+          >
+        </div>
+        <button class="secondary-button" :disabled="loading || pending">查询</button>
       </form>
-      <details class="user-group-filter">
-        <summary>按用户组筛选</summary>
-        <ReferencePicker
-          v-model="groupFilter"
-          kind="groups"
-          single
-          :disabled="loading || pending"
-        /><label><input v-model="includeDescendants" type="checkbox" /> 包含下级组织</label
-        ><button class="text-button" :disabled="loading || pending" @click="load(0)">
-          应用筛选
-        </button>
-      </details>
       <div v-if="loading" class="loading" role="status">正在读取用户…</div>
       <div class="table-wrap">
         <table class="users-table">

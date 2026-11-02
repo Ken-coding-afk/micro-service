@@ -151,7 +151,7 @@ fieldset {
 label {
   display: grid;
   gap: 8px;
-  color: #42516a;
+  color: var(--ink-700);
   font-size: 13px;
 }
 label:has(input[type='checkbox']) {
@@ -163,16 +163,16 @@ input[type='number'] {
   box-sizing: border-box;
   width: 100%;
   padding: 6px 10px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--line-3);
   border-radius: 4px;
 }
 button {
   width: fit-content;
   padding: 9px 16px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--line-3);
   border-radius: 4px;
-  background: #fff;
-  color: #254b84;
+  background: var(--surface-1);
+  color: var(--primary-ink);
   cursor: pointer;
 }
 button:disabled {
@@ -183,7 +183,7 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(240px, 420px);
   gap: 12px;
-  border-bottom: 1px solid #e1e7ef;
+  border-bottom: 1px solid var(--line-1);
   padding-bottom: 24px;
 }
 .policy-group label {

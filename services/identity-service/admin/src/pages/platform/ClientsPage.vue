@@ -405,7 +405,7 @@ label {
   display: grid;
   gap: 7px;
   font-size: 13px;
-  color: #42516a;
+  color: var(--ink-700);
 }
 .full-width {
   grid-column: 1 / -1;
@@ -422,7 +422,7 @@ textarea {
   width: 100%;
   min-height: 40px;
   padding: 9px 12px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--line-3);
   border-radius: 8px;
   font: inherit;
 }
@@ -433,10 +433,10 @@ textarea {
 button {
   width: fit-content;
   padding: 9px 16px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--line-3);
   border-radius: 8px;
-  background: #fff;
-  color: #254b84;
+  background: var(--surface-1);
+  color: var(--primary-ink);
   cursor: pointer;
 }
 button:disabled {
@@ -466,7 +466,7 @@ table {
 td,
 th {
   padding: 12px;
-  border-bottom: 1px solid #e5eaf2;
+  border-bottom: 1px solid var(--line-2);
   overflow-wrap: anywhere;
 }
 </style>

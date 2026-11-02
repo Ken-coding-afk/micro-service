@@ -271,11 +271,11 @@ onMounted(fromRoute)
   border-radius: 8px;
 }
 .session-warning {
-  background: #fff8ed;
-  border: 1px solid #efd7ad;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-line);
 }
 .session-note {
   background: #f0f5fd;
-  border: 1px solid #d5e2f6;
+  border: 1px solid #d9e5f7;
 }
 </style>

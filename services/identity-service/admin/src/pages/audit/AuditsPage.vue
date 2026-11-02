@@ -356,7 +356,7 @@ function platformAudit() {
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f5f8fc;
+  background: var(--surface-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   overflow: auto;
@@ -364,8 +364,8 @@ function platformAudit() {
 }
 .audit-warning {
   padding: 12px 15px;
-  background: #fff8ed;
-  border: 1px solid #efd7ad;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-line);
   border-radius: 8px;
 }
 @media (max-width: 900px) {

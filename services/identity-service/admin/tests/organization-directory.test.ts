@@ -130,7 +130,16 @@ it('系统权限只读并展示来源，不能提交目录修改', async () => {
     return { permission, catalog_version: 3, role_count: 1, user_count: 2 }
   })
   const page = await render(PermissionCatalogPage)
-  await page.find('tbody button')!.trigger('click')
+  const tenantSection = page.findAll('details.permission-section')[0]!
+  expect(tenantSection.attributes('open')).toBeDefined()
+  expect(tenantSection.text()).toContain('租户可分配权限')
+  expect(tenantSection.text()).toContain('已绑定')
+  expect(tenantSection.find('.permission-service-head').text()).toContain('identity-service')
+  expect(tenantSection.find('.action-chip').attributes('title')).toBe('identity:user:read')
+  const platformSection = page.findAll('details.permission-section')[1]!
+  expect(platformSection.attributes('open')).toBeUndefined()
+  expect(platformSection.text()).toContain('系统保留，不参与租户角色分配')
+  await tenantSection.find('.action-chip').trigger('click')
   await flushPromises()
   expect(page.find('dialog').text()).toContain('系统内置权限由框架维护')
   expect(page.find('dialog fieldset').attributes('disabled')).toBeDefined()
