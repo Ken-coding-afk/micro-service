@@ -1,0 +1,221 @@
+/*
+ * 认证页分屏布局：左侧深色品牌面板 + 右侧表单区。
+ * 由 login.html 与 initial-password.html 加载；login-common.css 仍是公共底，此处按更高优先级覆盖布局与控件。
+ * 色值与前端 src/app/style.css 的 design token 保持同步（独立文件无法引用变量）。
+ */
+.auth-split {
+  display: grid;
+  grid-template-columns: minmax(340px, 42%) 1fr;
+  min-height: 100vh;
+  margin: 0;
+  background: #ffffff;
+}
+.auth-split,
+.auth-split *,
+.auth-split *::before,
+.auth-split *::after {
+  box-sizing: border-box;
+}
+.auth-aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 48px 44px 40px;
+  background:
+    radial-gradient(720px 420px at 90% -8%, #215cd72e 0%, transparent 58%),
+    radial-gradient(560px 380px at -12% 108%, #1d65db24 0%, transparent 55%),
+    linear-gradient(168deg, #0f1b30 0%, #16233a 55%, #101c31 100%);
+  color: #ffffff;
+}
+.auth-aside-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.auth-aside-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #2a66e0 0%, #174dbd 100%);
+  color: #ffffff;
+  font-size: 23px;
+  font-weight: 650;
+  box-shadow: 0 8px 20px #215cd740;
+}
+.auth-aside-logo {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+}
+.auth-aside-brand strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+  overflow-wrap: anywhere;
+}
+.auth-aside-brand small {
+  display: block;
+  margin-top: 2px;
+  color: #8fa3c0;
+  font-size: 12px;
+}
+.auth-aside-copy h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.3px;
+  color: #f2f6fc;
+}
+.auth-aside-copy p {
+  margin: 10px 0 0;
+  max-width: 30em;
+  color: #9db0cd;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.auth-aside-foot {
+  margin: 0;
+  color: #7488a6;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+}
+/* 右侧表单区：纵向成列，宽度统一。 */
+.auth-split main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  max-width: none;
+  margin: 0;
+  padding: 48px 32px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.auth-split main > * {
+  width: 100%;
+  max-width: 368px;
+}
+.auth-split h1 {
+  margin: 0 0 6px;
+  font-size: 25px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.5px;
+  color: #182638;
+}
+.auth-split main > p {
+  margin: 6px 0 14px;
+  color: #586575;
+  font-size: 14px;
+}
+.auth-split label {
+  display: block;
+  margin: 16px 0 7px;
+  color: #45576d;
+  font-size: 13px;
+  font-weight: 600;
+}
+.auth-split label small {
+  display: block;
+  margin-top: 6px;
+  color: #8b9bb0;
+  font-size: 12px;
+  font-weight: 400;
+}
+.auth-split input,
+.auth-split select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 13px;
+  border: 1px solid #d5deea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #182638;
+  font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.auth-split input:hover,
+.auth-split select:hover {
+  border-color: #aab5c5;
+}
+.auth-split input:focus,
+.auth-split select:focus {
+  outline: 0;
+  border-color: #215cd7;
+  box-shadow: 0 0 0 3px #215cd71a;
+}
+.auth-split button {
+  min-height: 44px;
+  margin-top: 24px;
+  padding: 11px 16px;
+  border: 1px solid #215cd7;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #2a66e0 0%, #215cd7 60%, #1d54ca 100%);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 20px #215cd733;
+  transition: filter 0.15s, box-shadow 0.15s;
+}
+.auth-split button:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 10px 26px #215cd740;
+}
+.auth-split button:active:not(:disabled) {
+  filter: brightness(0.97);
+  box-shadow: 0 4px 12px #215cd72e;
+}
+.auth-split button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.auth-split button:focus-visible,
+.auth-split a:focus-visible {
+  outline: 3px solid #215cd7;
+  outline-offset: 4px;
+}
+.auth-split a {
+  color: #215cd7;
+}
+.auth-split .error {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #f1d6d2;
+  border-radius: 10px;
+  background: #fff3f2;
+  color: #a74740;
+  font-size: 13px;
+}
+.auth-split .auth-notice {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eef9f4;
+  color: #277b58;
+  font-size: 13px;
+}
+.auth-split h2 {
+  font-size: 17px;
+}
+/* 窄屏退化为单列，隐藏品牌面板。 */
+@media (max-width: 900px) {
+  .auth-split {
+    grid-template-columns: 1fr;
+  }
+  .auth-aside {
+    display: none;
+  }
+  .auth-split main {
+    min-height: 100vh;
+  }
+}

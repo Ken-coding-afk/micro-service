@@ -90,6 +90,8 @@ public final class LoginPageController {
   String initial(Authentication auth, Model model, HttpServletResponse response) {
     response.setHeader("Cache-Control", "no-store");
     model.addAttribute("minimum", policies.current(identity(auth).tenant()).passwordMinChars());
+    model.addAttribute("projectName", projectName);
+    model.addAttribute("logoUrl", logoUrl);
     return "identity/initial-password";
   }
 
@@ -141,6 +143,8 @@ public final class LoginPageController {
       }
       model.addAttribute("passwordError", rejected.code());
       model.addAttribute("minimum", policies.current(owner.tenant()).passwordMinChars());
+      model.addAttribute("projectName", projectName);
+      model.addAttribute("logoUrl", logoUrl);
       return "identity/initial-password";
     }
   }
