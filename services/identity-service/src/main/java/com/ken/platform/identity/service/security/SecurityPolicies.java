@@ -107,7 +107,7 @@ public final class SecurityPolicies {
         lower(base.recentAuthSeconds(), override == null ? null : override.recentAuthSeconds());
     if (override != null
             && (override.loginIpAttemptLimit() != null || override.loginIpWindowSeconds() != null)
-        || min < 15
+        || min < 8
         || min > 32
         || failures < 1
         || failures > 10

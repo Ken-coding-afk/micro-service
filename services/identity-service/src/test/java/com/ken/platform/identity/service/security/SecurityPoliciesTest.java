@@ -17,7 +17,7 @@ class SecurityPoliciesTest {
 
   private SecurityPolicyMapper.Row base() {
     return new SecurityPolicyMapper.Row(
-        "PLATFORM", null, 15, 10, 900, 900, 60, 60, 28800, 1800, 300, 3);
+        "PLATFORM", null, 8, 10, 900, 900, 60, 60, 28800, 1800, 300, 3);
   }
 
   private SecurityPolicyMapper.Row old(Integer min) {
@@ -27,10 +27,10 @@ class SecurityPoliciesTest {
 
   @Test
   void projectPolicyAppliesToAllTenantsWithoutDynamicOverride() {
-    for (var previous : List.of(old(null), old(15))) {
+    for (var previous : List.of(old(null), old(8))) {
       when(mapper.current(tenant)).thenReturn(List.of(base(), previous));
       var effective = policies.current(tenant);
-      assertThat(effective.passwordMinChars()).isEqualTo(15);
+      assertThat(effective.passwordMinChars()).isEqualTo(8);
       assertThat(effective.tenantVersion()).isNull();
       assertThat(effective.platformVersion()).isEqualTo(3);
     }
@@ -57,7 +57,7 @@ class SecurityPoliciesTest {
             List.of(base(), base()),
             List.of(
                 new SecurityPolicyMapper.Row(
-                    "PLATFORM", null, 14, 10, 900, 900, 60, 60, 28800, 1800, 300, 3)))) {
+                    "PLATFORM", null, 7, 10, 900, 900, 60, 60, 28800, 1800, 300, 3)))) {
       when(mapper.current(tenant)).thenReturn(rows);
       assertThatThrownBy(() -> policies.current(tenant))
           .isInstanceOfSatisfying(
@@ -69,7 +69,7 @@ class SecurityPoliciesTest {
   @Test
   void equivalentLegacyPolicyAllowsStartupWithoutChangingRows() {
     when(mapper.current(null)).thenReturn(List.of(base()));
-    when(mapper.tenantOverrides()).thenReturn(List.of(old(15)));
+    when(mapper.tenantOverrides()).thenReturn(List.of(old(8)));
     new SecurityPolicyUpgradeCheck(mapper).run(null);
     verify(mapper).tenantOverrides();
   }
