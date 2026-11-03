@@ -35,7 +35,7 @@ jobs:
         submodules: recursive
         fetch-depth: 0
     - &id002
-      uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
+      uses: astral-sh/setup-uv@a1b1886df2277bb7c1c6d4caf3c7a2cdb4b0b587
       with:
         version: 0.13.5
         python-version: '3.12'
@@ -158,7 +158,7 @@ jobs:
     timeout-minutes: 15
     steps:
     - *id003
-    - uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
+    - uses: astral-sh/setup-uv@a1b1886df2277bb7c1c6d4caf3c7a2cdb4b0b587
       with:
         version: 0.13.5
         python-version: '3.12'
