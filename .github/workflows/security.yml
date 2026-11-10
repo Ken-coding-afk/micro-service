@@ -55,7 +55,7 @@ jobs:
         distribution: temurin
         java-version: '21'
       if: steps.scope.outputs.needed == 'true'
-    - uses: astral-sh/setup-uv@0192b6951893e558e24cfbd971d641a8cd336a95
+    - uses: astral-sh/setup-uv@0a73d6eb01c0201c8fc84847d0f4425b704ad66d
       with:
         version: 0.13.5
         python-version: '3.12'
