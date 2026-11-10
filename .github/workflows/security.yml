@@ -50,7 +50,7 @@ jobs:
         key: nvd-12.1.0-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: nvd-12.1.0-${{ runner.os }}-
       if: steps.scope.outputs.needed == 'true'
-    - uses: actions/setup-java@816722acf8fd27c9d1e9ae6ee6085da07e0d44c1
+    - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
       with:
         distribution: temurin
         java-version: '21'
