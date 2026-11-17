@@ -12,7 +12,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-java@816722acf8fd27c9d1e9ae6ee6085da07e0d44c1
+      - uses: actions/setup-java@3c7a629527941a8a1e09ca6db4f95a5d9cad6c64
         with:
           distribution: temurin
           java-version: '21'
